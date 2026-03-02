@@ -526,3 +526,11 @@ def auth_signup(request: Request, email: str = Form(...), password: str = Form(.
 def auth_logout(request: Request):
     request.session.clear()
     return RedirectResponse('/auth/login', status_code=303)
+
+
+@app.get('/setup')
+def setup_page(request: Request):
+    return templates.TemplateResponse('setup_wizard.html', {
+        'request': request,
+        'vps_ip': '185.230.138.51',
+    })
