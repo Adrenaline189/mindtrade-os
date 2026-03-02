@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>สมัครใช้งาน Founder Plan</title>
+  <style>
+    body{font-family:Inter,Arial;background:#0b1020;color:#eef4ff;margin:0}
+    .wrap{max-width:860px;margin:24px auto;padding:16px}
+    .card{background:#121a32;border:1px solid #283a68;border-radius:14px;padding:16px;margin-bottom:12px}
+    input,select,textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #2e3f6f;background:#0f1530;color:#fff;margin-top:6px}
+    button{padding:10px 14px;border:0;border-radius:9px;background:#2f62d0;color:#fff;font-weight:700;cursor:pointer}
+    .muted{color:#9ab0d8;font-size:13px}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h2>🚀 Founder Plan Signup (Mock)</h2>
+  <div class="card">
+    <label>ชื่อ-นามสกุล<input id="name"></label>
+    <label>อีเมล<input id="email" type="email"></label>
+    <label>แพ็กเกจ
+      <select id="plan">
+        <option value="starter">Starter 990฿/เดือน</option>
+        <option value="pro">Pro 2,990฿/เดือน</option>
+      </select>
+    </label>
+    <label>Line/Telegram<input id="contact"></label>
+    <label>หมายเหตุ<textarea id="note" rows="3"></textarea></label>
+    <button onclick="submitMock()">ส่งข้อมูลสมัครใช้งาน</button>
+    <p class="muted" id="msg"></p>
+  </div>
+
+  <div class="card">
+    <h3>💳 Payment (Mock)</h3>
+    <p class="muted">หน้านี้เป็น mock flow สำหรับทดสอบ UX ก่อนเชื่อม payment gateway จริง</p>
+    <button onclick="mockPaid()">จำลองชำระเงินสำเร็จ</button>
+    <p class="muted" id="payMsg"></p>
+  </div>
+</div>
+<script>
+function submitMock(){
+  const payload={
+    name:document.getElementById('name').value,
+    email:document.getElementById('email').value,
+    plan:document.getElementById('plan').value,
+    contact:document.getElementById('contact').value,
+    note:document.getElementById('note').value,
+    ts:new Date().toISOString()
+  };
+  localStorage.setItem('founder_signup', JSON.stringify(payload));
+  document.getElementById('msg').textContent='บันทึกข้อมูลสมัครแล้ว (mock)';
+}
+function mockPaid(){
+  localStorage.setItem('founder_paid', JSON.stringify({paid:true,ts:new Date().toISOString()}));
+  document.getElementById('payMsg').textContent='Mock payment success ✅';
+}
+</script>
+</body>
+</html>

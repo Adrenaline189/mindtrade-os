@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MindTrade OS</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg:#070b14; --bg2:#0b1222; --card:rgba(18,26,46,.72); --card2:rgba(20,30,54,.78);
+      --line:#2a3b66; --line2:#31487d; --muted:#93a7cb; --text:#edf3ff;
+      --ok:#37e08a; --warn:#ffbf66; --bad:#ff6f7d; --accent:#6ea8ff; --accent2:#7c6bff;
+    }
+    * { box-sizing:border-box; }
+    body {
+      margin:0; font-family: Inter, ui-sans-serif, system-ui, Arial;
+      background:
+        radial-gradient(1200px 500px at 10% -10%, rgba(110,168,255,.18), transparent 60%),
+        radial-gradient(1000px 500px at 90% -20%, rgba(124,107,255,.18), transparent 58%),
+        linear-gradient(180deg,var(--bg),var(--bg2));
+      color:var(--text);
+    }
+    .wrap { max-width:1260px; margin:24px auto; padding:0 16px 40px; }
+    .top { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+    .status {
+      padding:8px 12px; border-radius:999px; font-weight:700; font-size:12px;
+      border:1px solid var(--line2); background:rgba(19,29,54,.8); backdrop-filter: blur(10px);
+      letter-spacing:.4px;
+    }
+    .running { color:var(--ok); } .stopped { color:var(--bad); }
+    .grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; margin-bottom:14px; }
+    .card {
+      background:linear-gradient(180deg,var(--card),var(--card2));
+      border:1px solid var(--line); border-radius:14px; padding:14px;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.03), 0 12px 30px rgba(0,0,0,.24);
+      backdrop-filter: blur(10px);
+    }
+    .kpi-label { color:var(--muted); font-size:12px; letter-spacing:.3px; }
+    .kpi-value { font-size:24px; font-weight:800; margin-top:4px; font-variant-numeric: tabular-nums; }
+    .main { display:grid; grid-template-columns:2fr 1fr; gap:14px; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th,td { padding:9px 8px; border-bottom:1px solid #223256; text-align:left; }
+    th { color:#bed0f3; font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.5px; }
+    tr:hover td { background: rgba(110,168,255,.05); }
+    .tag { font-weight:700; padding:3px 8px; border-radius:999px; font-size:11px; display:inline-block; border:1px solid transparent; }
+    .ENTRY_PAPER,.ENTRY_LIVE,.ENTRY { background:rgba(55,224,138,.14); color:#8ef2bf; border-color:rgba(55,224,138,.28); }
+    .PAPER_TP1,.PAPER_TP2 { background:rgba(110,168,255,.15); color:#a8ccff; border-color:rgba(110,168,255,.3); }
+    .PAPER_SL,.BLOCKED { background:rgba(255,111,125,.15); color:#ffb6be; border-color:rgba(255,111,125,.3); }
+    .SKIP { background:rgba(255,191,102,.12); color:#ffd59e; border-color:rgba(255,191,102,.25); }
+    input,select {
+      width:100%; margin-top:6px; margin-bottom:10px; background:#0d1530; color:#fff;
+      border:1px solid #324a7f; border-radius:9px; padding:9px; outline:none;
+    }
+    input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(110,168,255,.15); }
+    button {
+      background:linear-gradient(180deg,#3f6de0,#2f56b7); color:white; border:0; border-radius:10px;
+      padding:8px 12px; cursor:pointer; font-weight:700;
+    }
+    button:hover { filter:brightness(1.06); }
+    .danger { background:linear-gradient(180deg,#a54354,#7b2f3e); }
+    .row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .actions { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
+    .small { color:var(--muted); font-size:12px; }
+    .toolbar { display:flex; gap:8px; margin:10px 0; flex-wrap:wrap; }
+    .sticky-panic { position:fixed; right:16px; bottom:16px; z-index:1000; display:flex; gap:8px; }
+    pre { background:#0d1530; border:1px solid #2a3d6f; border-radius:10px; padding:12px; overflow:auto; }
+    canvas { border-radius:10px; }
+    
+    .navx { display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
+    .navx .pill { padding:8px 12px; border:1px solid var(--line2); border-radius:10px; color:#bfd1f5; background:#101a34; font-size:12px; }
+    .inspo { display:grid; grid-template-columns: 1.2fr 1.2fr .8fr; gap:14px; margin-bottom:14px; }
+    .donut { width:180px; height:180px; border-radius:50%; margin:auto; background: conic-gradient(#73b6ff 0 40%, #6b7bff 40% 70%, #ffb86b 70% 100%); position:relative; }
+    .donut:after { content:''; position:absolute; inset:18px; border-radius:50%; background:#0d1530; }
+    .mini-list div{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #2a3d6f;color:#c8d7f7;font-size:12px}
+    .spark { height:56px; border-radius:8px; background:linear-gradient(180deg,rgba(110,168,255,.25),rgba(110,168,255,.03)); border:1px solid #2b3f6f; }
+
+    @media (max-width:980px){ .grid{grid-template-columns:repeat(2,minmax(0,1fr));} .main{grid-template-columns:1fr;} .inspo{grid-template-columns:1fr;} }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h2 style="margin:0"><span id="txt_title">📈 MindTrade OS · Pro Theme</span></h2>
+      <div class="small"><span id="txt_symbols">Symbols</span>: {{ cfg.SYMBOLS|join(', ') }} • <span id="txt_mode">Mode</span>: {{ cfg.MODE }}</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <select id="langSwitch" style="width:auto;margin:0;padding:6px 8px"><option value="th">ไทย</option><option value="en">EN</option></select>
+      <div class="status {% if running %}running{% else %}stopped{% endif %}">{% if running %}● RUNNING{% else %}● STOPPED{% endif %}</div>
+    </div>
+  </div>
+  <div class="toolbar" id="symbolTabs"></div>
+  <div class="navx">
+    <div class="pill">Dashboard</div>
+    <div class="pill">Arbitrage AI Bots</div>
+    <div class="pill">My Exchanges</div>
+    <div class="pill">Settings</div>
+    <div class="pill">Support</div>
+  </div>
+
+
+  <div class="grid">
+    <div class="card"><div class="kpi-label"><span id="txt_maxdd">Max DD (R)</span></div><div class="kpi-value" id="k_maxdd">0</div></div>
+    <div class="card"><div class="kpi-label"><span id="txt_entries">Entries</span> (<span id="k_symbol">ALL</span>)</div><div class="kpi-value" id="k_entries">{{ summary.entries }}</div></div>
+    <div class="card"><div class="kpi-label"><span id="txt_win">Win Rate</span></div><div class="kpi-value" id="k_win">{{ summary.win_rate }}%</div></div>
+    <div class="card"><div class="kpi-label"><span id="txt_totalr">Total R</span></div><div class="kpi-value" id="k_totalr">{{ summary.total_r }}</div></div>
+    <div class="card"><div class="kpi-label"><span id="txt_tp">TP Hits</span></div><div class="kpi-value" id="k_tp">{{ summary.tp_hits }}</div></div>
+    <div class="card"><div class="kpi-label"><span id="txt_sl">SL Hits</span></div><div class="kpi-value" id="k_sl">{{ summary.sl_hits }}</div></div>
+  <div class="card"><div class="kpi-label"><span id="txt_conn">Connection</span></div><div class="kpi-value" id="k_conn">-</div></div>
+    <div class="card"><div class="kpi-label"><span id="txt_exposure">Exposure |uPnL|</span></div><div class="kpi-value" id="k_exposure">0</div></div>
+    <div class="card"><div class="kpi-label"><span id="txt_openpos">Open Positions</span></div><div class="kpi-value" id="k_positions">0</div></div>
+</div>
+
+
+  <div class="inspo">
+    <div class="card">
+      <h3 style="margin-top:0">Overview</h3>
+      <div style="display:grid;grid-template-columns:200px 1fr;gap:10px;align-items:center;">
+        <div class="donut"></div>
+        <div class="mini-list">
+          <div><span>BTC</span><strong>$763.51</strong></div>
+          <div><span>ETH</span><strong>$677.52</strong></div>
+          <div><span>USDT</span><strong>$57.76</strong></div>
+          <div><span>Total Balance</span><strong id="k_totalr">{{ summary.total_r }}</strong></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Profit and Loss</h3>
+      <canvas id="pnlBar" height="120"></canvas>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Active Bots</h3>
+      <div class="mini-list">
+        <div><span>Kraken</span><strong>1</strong></div>
+        <div><span>Binance</span><strong>{{ cfg.SYMBOLS|length }}</strong></div>
+        <div><span>Status</span><strong>{% if running %}RUNNING{% else %}STOPPED{% endif %}</strong></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="inspo" style="grid-template-columns: 2fr 1fr;">
+    <div class="card">
+      <h3 style="margin-top:0">My Coins on Exchanges</h3>
+      <table>
+        <thead><tr><th>Coin/Exchange</th><th>Amount</th><th>Value</th><th>Allocation</th></tr></thead>
+        <tbody>
+          <tr><td>Bitcoin (BTC)</td><td>21.123456</td><td>$582,637.73</td><td>43%</td></tr>
+          <tr><td>Ethereum (ETH)</td><td>12.456700</td><td>$282,122.19</td><td>33%</td></tr>
+          <tr><td>Solana (SOL)</td><td>843.12</td><td>$102,987.12</td><td>24%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">The Best Cryptos</h3>
+      <div class="mini-list">
+        <div><span>Bitcoin (BTC)</span><strong>+0.44%</strong></div>
+        <div class="spark"></div>
+        <div><span>Ethereum (ETH)</span><strong>+0.31%</strong></div>
+        <div class="spark"></div>
+        <div><span>Solana (SOL)</span><strong>+1.25%</strong></div>
+        <div class="spark"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:14px;">
+    <h3 style="margin-top:0"><span id="txt_chart">📉 Price + Signal Timeline</span></h3>
+    <canvas id="priceChart" height="110"></canvas>
+  </div>
+
+  <div class="main">
+    <div class="card">
+      <h3 style="margin-top:0"><span id="txt_events">🧾 Latest Events</span></h3>
+      <div class="toolbar">
+        <select id="filterSymbol"><option value="">All Symbols</option></select>
+        <select id="filterResult">
+          <option value="">All Results</option>
+          <option>ENTRY_PAPER</option><option>ENTRY_LIVE</option><option>PAPER_TP1</option><option>PAPER_TP2</option><option>PAPER_SL</option><option>BLOCKED</option><option>SKIP</option>
+        </select>
+      </div>
+      <table id="eventsTable">
+        <thead><tr><th>Time</th><th>Symbol</th><th>Bias</th><th>RSI</th><th>Result</th><th>Note</th></tr></thead>
+        <tbody>
+        {% for t in trades|reverse %}
+          <tr data-symbol="{{ t.symbol or '-' }}" data-result="{{ t.result }}">
+            <td>{{ t.time }}</td><td>{{ t.symbol or '-' }}</td><td>{{ t.bias }}</td><td>{{ t.rsi }}</td>
+            <td><span class="tag {{ t.result }}">{{ t.result }}</span></td><td>{{ t.note or '' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0"><span id="txt_runtime">⚙ Runtime Settings</span></h3>
+      <form action="/update" method="post">
+        <div class="row"><div><label>RSI MIN</label><input name="rsi_min" value="{{ cfg.RSI_MIN }}"></div><div><label>RSI MAX</label><input name="rsi_max" value="{{ cfg.RSI_MAX }}"></div></div>
+        <label>Golden Zone %</label><input name="gz" value="{{ cfg.GOLDEN_ZONE_DISTANCE }}">
+        <label>Risk / Trade</label><input name="risk" value="{{ cfg.RISK_PER_TRADE }}">
+        <label>Leverage (x)</label><input name="leverage" value="{{ cfg.LEVERAGE }}">
+        <label>Margin Mode</label><select name="margin_mode"><option value="cross" {% if cfg.MARGIN_MODE=="cross" %}selected{% endif %}>cross</option><option value="isolated" {% if cfg.MARGIN_MODE=="isolated" %}selected{% endif %}>isolated</option></select>
+        <label>Leverage by symbol (e.g. BTC/USDT:5,ETH/USDT:3)</label><input name="leverage_by_symbol" value="{% for k,v in cfg.LEVERAGE_BY_SYMBOL.items() %}{{k}}:{{v}}{% if not loop.last %},{% endif %}{% endfor %}">
+        <label>Max trades/day</label><input name="max_trades" value="{{ cfg.MAX_TRADES_PER_DAY }}">
+        <label>Cooldown minutes</label><input name="cooldown_minutes" value="{{ cfg.COOLDOWN_MINUTES }}">
+        <label>Daily loss cap %</label><input name="daily_loss_cap_pct" value="{{ cfg.DAILY_LOSS_CAP_PCT }}">
+        <label>Symbols (comma separated)</label><input name="symbols" value="{{ cfg.SYMBOLS|join(',') }}">
+        <label>MODE</label>
+        <select name="mode"><option value="PAPER" {% if cfg.MODE=="PAPER" %}selected{% endif %}>PAPER</option><option value="LIVE" {% if cfg.MODE=="LIVE" %}selected{% endif %}>LIVE</option></select>
+        <label>Allow Live Orders</label>
+        <select name="allow_live"><option value="false" {% if not cfg.ALLOW_LIVE_ORDERS %}selected{% endif %}>False</option><option value="true" {% if cfg.ALLOW_LIVE_ORDERS %}selected{% endif %}>True</option></select>
+        <button type="submit" id="txt_save_btn">Save</button>
+      </form>
+      <div class="actions">
+        <form action="/start" method="post"><button id="txt_start_btn">▶ START</button></form>
+        <form action="/stop" method="post"><button class="danger" id="txt_stop_btn">⏹ STOP</button></form>
+      </div>
+    </div>
+  </div>
+</div>
+
+  <div class="card" style="margin-top:14px;">
+    <h3 style="margin-top:0"><span id="txt_blocked">🚧 Blocked Reasons</span></h3>
+    <pre id="blockedBox" class="small">-</pre>
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <h3 style="margin-top:0"><span id="txt_positions_tbl">📦 Open Positions</span></h3>
+    <table id="posTable"><thead><tr><th>Symbol</th><th>Side</th><th>Contracts</th><th>Entry</th><th>Mark</th><th>uPnL</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <h3 style="margin-top:0">⚖️ Leverage by Symbol</h3>
+    <table id="levTable"><thead><tr><th>Symbol</th><th>Leverage</th><th>Margin Mode</th></tr></thead><tbody></tbody></table>
+  </div>
+
+<div class="sticky-panic">
+  <form action="/panic" method="post" onsubmit="return confirm('ยืนยันเปิด PANIC STOP ?')"><button class="danger" id="txt_panic_btn">🛑 PANIC</button></form>
+  <form action="/unpanic" method="post" onsubmit="return confirm('ปลด PANIC STOP ?')"><button id="txt_unpanic_btn">✅ UNPANIC</button></form>
+</div>
+
+<script>
+let chart;
+let currentSymbol = '';
+const configuredSymbols = {{ cfg.SYMBOLS|tojson }};
+
+function tabBtn(label,val){
+  const b=document.createElement('button');
+  b.textContent=label; b.style.background = (currentSymbol===val?'#4f7dff':'#2c4ea0');
+  b.onclick=()=>{ currentSymbol=val; renderTabs(); refreshSummary(); renderChart(); applyFilters(); };
+  return b;
+}
+
+function renderTabs(){
+  const wrap=document.getElementById('symbolTabs');
+  wrap.innerHTML='';
+  wrap.appendChild(tabBtn('ALL',''));
+  configuredSymbols.forEach(s=>wrap.appendChild(tabBtn(s,s)));
+}
+
+async function refreshSummary(){
+  const qs = currentSymbol ? ('?symbol='+encodeURIComponent(currentSymbol)) : '';
+  const res = await fetch('/api/summary'+qs);
+  const data = await res.json();
+  const s = data.summary;
+  document.getElementById('k_symbol').textContent = currentSymbol || 'ALL';
+  document.getElementById('k_entries').textContent = s.entries;
+  document.getElementById('k_win').textContent = s.win_rate + '%';
+  document.getElementById('k_totalr').textContent = s.total_r;
+  document.getElementById('k_tp').textContent = s.tp_hits;
+  document.getElementById('k_sl').textContent = s.sl_hits;
+  document.getElementById('k_exposure').textContent = data.exposure_abs_upnl ?? 0;
+  document.getElementById('k_positions').textContent = data.open_positions_count ?? 0;
+  document.getElementById('blockedBox').textContent = JSON.stringify(data.blocked_reasons || {}, null, 2);
+
+  const tb=document.querySelector('#posTable tbody');
+  tb.innerHTML='';
+  (data.open_positions||[]).forEach(p=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${p.symbol||''}</td><td>${p.side||''}</td><td>${p.contracts||''}</td><td>${p.entryPrice||''}</td><td>${p.markPrice||''}</td><td>${p.unrealizedPnl||''}</td>`;
+    tb.appendChild(tr);
+  });
+
+  const p = await fetch('/api/performance').then(r=>r.json());
+  document.getElementById('k_maxdd').textContent = p.max_dd_r;
+
+  const c = await fetch('/api/connection').then(r=>r.json());
+  document.getElementById('k_conn').textContent = c.ok ? 'OK' : 'ERR';
+}
+
+function applyFilters(){
+  if(currentSymbol){ document.getElementById('filterSymbol').value=currentSymbol; }
+  const fs = document.getElementById('filterSymbol').value;
+  const fr = document.getElementById('filterResult').value;
+  document.querySelectorAll('#eventsTable tbody tr').forEach(tr => {
+    const okS = !fs || tr.dataset.symbol === fs;
+    const okR = !fr || tr.dataset.result === fr;
+    tr.style.display = (okS && okR) ? '' : 'none';
+  });
+}
+
+async function initFilters(){
+  const res = await fetch('/api/events?limit=500');
+  const data = await res.json();
+  const syms = [...new Set(data.events.map(e => e.symbol).filter(Boolean))].sort();
+  const sel = document.getElementById('filterSymbol');
+  syms.forEach(s => { const o=document.createElement('option'); o.value=s; o.textContent=s; sel.appendChild(o); });
+}
+
+async function renderChart(){
+  const qs = currentSymbol ? ('&symbol='+encodeURIComponent(currentSymbol)) : '';
+  const res = await fetch('/api/chart?limit=200'+qs);
+  const d = await res.json();
+  const ctx = document.getElementById('priceChart').getContext('2d');
+  if(chart) chart.destroy();
+  chart = new Chart(ctx, {
+    type:'line',
+    data:{ labels:d.labels, datasets:[{label:'Close', data:d.prices, borderColor:'#5ea1ff', pointRadius:0, tension:0.2}]},
+    options:{
+      plugins:{legend:{labels:{color:'#dbe7ff'}}},
+      scales:{ x:{ticks:{color:'#8ea0c0', maxTicksLimit:8}}, y:{ticks:{color:'#8ea0c0'}} }
+    }
+  });
+}
+
+
+function applyLanguage(lang){
+  const th={
+    txt_title:'📈 MindTrade OS · ธีมโปร', txt_symbols:'เหรียญ', txt_mode:'โหมด', txt_maxdd:'ดรอดาวน์สูงสุด (R)', txt_entries:'จำนวนเข้าไม้', txt_win:'อัตราชนะ', txt_totalr:'รวม R', txt_tp:'จำนวน TP', txt_sl:'จำนวน SL',
+    txt_conn:'การเชื่อมต่อ', txt_exposure:'ความเสี่ยง |uPnL|', txt_openpos:'โพสิชันที่เปิด', txt_chart:'📉 กราฟราคา + สัญญาณ', txt_events:'🧾 เหตุการณ์ล่าสุด', txt_runtime:'⚙ ตั้งค่าระบบ', txt_blocked:'🚧 เหตุผลที่บล็อก', txt_positions_tbl:'📦 โพสิชันที่เปิด',
+    txt_save_btn:'บันทึก', txt_start_btn:'▶ เริ่ม', txt_stop_btn:'⏹ หยุด', txt_panic_btn:'🛑 หยุดฉุกเฉิน', txt_unpanic_btn:'✅ ปลดฉุกเฉิน'
+  };
+  const en={
+    txt_title:'📈 MindTrade OS · Pro Theme', txt_symbols:'Symbols', txt_mode:'Mode', txt_maxdd:'Max DD (R)', txt_entries:'Entries', txt_win:'Win Rate', txt_totalr:'Total R', txt_tp:'TP Hits', txt_sl:'SL Hits',
+    txt_conn:'Connection', txt_exposure:'Exposure |uPnL|', txt_openpos:'Open Positions', txt_chart:'📉 Price + Signal Timeline', txt_events:'🧾 Latest Events', txt_runtime:'⚙ Runtime Settings', txt_blocked:'🚧 Blocked Reasons', txt_positions_tbl:'📦 Open Positions',
+    txt_save_btn:'Save', txt_start_btn:'▶ START', txt_stop_btn:'⏹ STOP', txt_panic_btn:'🛑 PANIC', txt_unpanic_btn:'✅ UNPANIC'
+  };
+  const d = lang==='th'?th:en;
+  Object.keys(d).forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent=d[id]; });
+  localStorage.setItem('dash_lang',lang);
+}
+const langSel=document.getElementById('langSwitch');
+if(langSel){
+  const saved=localStorage.getItem('dash_lang')||'th';
+  langSel.value=saved;
+  applyLanguage(saved);
+  langSel.addEventListener('change',e=>applyLanguage(e.target.value));
+}
+
+
+
+async function refreshLeverage(){
+  try{
+    const data = await fetch('/api/leverage').then(r=>r.json());
+    const tb = document.querySelector('#levTable tbody');
+    if(!tb) return;
+    tb.innerHTML='';
+    (data.rows||[]).forEach(x=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td>${x.symbol}</td><td>${x.leverage}x</td><td>${x.margin_mode}</td>`;
+      tb.appendChild(tr);
+    });
+  }catch(e){}
+}
+
+setInterval(()=>{ refreshSummary(); renderChart(); refreshLeverage(); }, 10000);
+document.getElementById('filterSymbol').addEventListener('change', applyFilters);
+document.getElementById('filterResult').addEventListener('change', applyFilters);
+
+  const pctx = document.getElementById('pnlBar');
+  if (pctx) {
+    new Chart(pctx.getContext('2d'), {
+      type:'bar',
+      data:{labels:['24H','7D','30D','ALL'], datasets:[{label:'PnL', data:[334,518,1734,22634], backgroundColor:['#5ea1ff','#6e8cff','#7c6bff','#63e3a2']}]},
+      options:{plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#9bb0d8'}}, y:{ticks:{color:'#9bb0d8'}}}}
+    });
+  }
+
+renderTabs(); initFilters(); refreshSummary(); renderChart(); refreshLeverage();
+</script>
+</body>
+</html>

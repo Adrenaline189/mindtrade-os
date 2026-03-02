@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{{ product_name }} | Landing</title>
+  <style>
+    :root{--bg:#070b17;--card:#0f1730;--line:#2a3a68;--text:#eaf1ff;--muted:#9db0d8;--pri:#5c8cff;--ok:#57e39f}
+    *{box-sizing:border-box} body{margin:0;background:radial-gradient(circle at 10% 10%,#15244a 0,#070b17 45%);color:var(--text);font-family:Inter,Arial,sans-serif}
+    .wrap{max-width:1040px;margin:0 auto;padding:28px 18px}
+    .hero{border:1px solid var(--line);background:linear-gradient(135deg,#0f1730 0,#0b1226 100%);border-radius:16px;padding:28px}
+    h1{margin:.2rem 0 1rem;font-size:2rem} p{color:var(--muted);line-height:1.6}
+    .cta{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+    .btn{display:inline-block;padding:10px 14px;border-radius:10px;text-decoration:none;color:white;border:1px solid transparent}
+    .btn-pri{background:var(--pri)} .btn-ghost{border-color:var(--line);background:#101a36}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:14px}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+    .price{font-size:1.35rem;font-weight:700;color:var(--ok)}
+    .footer{color:#8ea4d3;margin-top:22px;font-size:.92rem}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <div style="font-size:.9rem;color:#9ab2e6">🚀 {{ product_name }}</div>
+      <h1>เทรดอย่างเป็นระบบ ไม่ใช่อารมณ์</h1>
+      <p>{{ tagline }}<br/>พร้อม Dashboard, Risk Guard, Multi-symbol, และระบบสมาชิกในตัว</p>
+      <div class="cta">
+        <a class="btn btn-pri" href="/profile">เริ่มใช้งาน</a>
+        <a class="btn btn-ghost" href="/admin/licenses">จัดการสมาชิก</a>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="card"><h3>📊 Smart Dashboard</h3><p>ดูสถานะบอท, health, performance และ events แบบเรียลไทม์</p></div>
+      <div class="card"><h3>🛡️ Risk-first Engine</h3><p>daily loss cap, cooldown, panic stop และ guard หลายชั้น</p></div>
+      <div class="card"><h3>🔑 Membership Ready</h3><p>ออก license, ต่ออายุ, suspend/activate, ส่ง token ทาง Telegram</p></div>
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <h3>Starter</h3>
+        <div class="price">฿1,490 / เดือน</div>
+        <p>เหมาะสำหรับสายทดลองระบบ + paper workflow</p>
+      </div>
+      <div class="card">
+        <h3>Pro</h3>
+        <div class="price">฿4,900 / เดือน</div>
+        <p>สำหรับผู้ใช้จริง: LIVE mode, multi-symbol, alerts และ priority support</p>
+      </div>
+      <div class="card">
+        <h3>Founder Promo</h3>
+        <div class="price">ลด 20%</div>
+        <p>สำหรับ early adopters ระยะแรกของ MindTrade OS</p>
+      </div>
+    </section>
+
+    <div class="footer">© 2026 MindTrade OS — Built for disciplined traders</div>
+  </div>
+</body>
+</html>
