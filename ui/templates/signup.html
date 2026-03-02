@@ -1,0 +1,8 @@
+<!doctype html><html><head><meta charset='utf-8'><title>Signup</title>
+<style>body{font-family:Arial;background:#0b1020;color:#eef4ff;padding:20px}.card{max-width:420px;margin:auto;background:#121a32;border:1px solid #2a3a68;border-radius:12px;padding:16px}input{width:100%;padding:10px;margin:6px 0;border-radius:8px;border:1px solid #334a7d;background:#0f1530;color:#fff}.err{color:#ff9aa5}</style>
+</head><body><div class='card'><h2>📝 Create account</h2>{% if err %}<div class='err'>{{ err }}</div>{% endif %}
+<form method='post' action='/auth/signup'>
+<input name='email' placeholder='Email' required>
+<input name='password' type='password' placeholder='Password (min 6)' required>
+<button type='submit'>Sign up</button>
+</form><p><a href='/auth/login'>Have account? Login</a></p></div></body></html>

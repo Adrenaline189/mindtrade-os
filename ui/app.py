@@ -7,16 +7,19 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request, Header, HTTPException
 from fastapi.responses import JSONResponse, RedirectResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 
 from bot.config_runtime import RUNTIME_CONFIG
 from bot.engine import run_engine, exchange
 from bot.state import bot_state
 from bot.license import license_ok
 from bot.license_service import issue_license, list_licenses, record_payment, has_payment_event, set_license_active, delete_license, renew_license, find_licenses, list_payments_for_license
+from bot.auth_service import create_user, verify_user
 
 load_dotenv()
 
 app = FastAPI(title="MindTrade OS")
+app.add_middleware(SessionMiddleware, secret_key=__import__('os').getenv('SESSION_SECRET', 'mindtrade-dev-secret'))
 BASE_DIR = Path(__file__).resolve().parents[1]
 templates = Jinja2Templates(directory=str(BASE_DIR / "ui" / "templates"))
 TRADE_CSV = BASE_DIR / "data" / "paper_trades.csv"
@@ -438,9 +441,13 @@ def profile_page(request: Request, token: str = ''):
     expiry_state = 'unknown'
     payments = []
 
-    if db_path.exists() and token:
+    user_email = (request.session.get('user_email') or '').strip().lower()
+    if db_path.exists():
         db = json.loads(db_path.read_text())
-        rec = next((x for x in db.get('licenses',[]) if x.get('license_token')==token), None)
+        if token:
+            rec = next((x for x in db.get('licenses',[]) if x.get('license_token')==token), None)
+        elif user_email:
+            rec = next((x for x in db.get('licenses',[]) if (x.get('email') or '').strip().lower()==user_email), None)
 
     if rec:
         exp_raw = rec.get('expires_at')
@@ -469,6 +476,7 @@ def profile_page(request: Request, token: str = ''):
         'days_left': days_left,
         'expiry_state': expiry_state,
         'payments': payments,
+        'user_email': request.session.get('user_email',''),
     })
 
 
@@ -485,3 +493,36 @@ def landing_page(request: Request):
         'product_name': 'MindTrade OS',
         'tagline': 'AI Trading Operating System for serious solo traders',
     })
+
+
+@app.get('/auth/login')
+def auth_login_page(request: Request, err: str = ''):
+    return templates.TemplateResponse('login.html', {'request': request, 'err': err})
+
+
+@app.post('/auth/login')
+def auth_login(request: Request, email: str = Form(...), password: str = Form(...)):
+    if not verify_user(email, password):
+        return RedirectResponse('/auth/login?err=invalid', status_code=303)
+    request.session['user_email'] = email.strip().lower()
+    return RedirectResponse('/profile', status_code=303)
+
+
+@app.get('/auth/signup')
+def auth_signup_page(request: Request, err: str = ''):
+    return templates.TemplateResponse('signup.html', {'request': request, 'err': err})
+
+
+@app.post('/auth/signup')
+def auth_signup(request: Request, email: str = Form(...), password: str = Form(...)):
+    ok, reason = create_user(email, password)
+    if not ok:
+        return RedirectResponse(f'/auth/signup?err={reason}', status_code=303)
+    request.session['user_email'] = email.strip().lower()
+    return RedirectResponse('/profile', status_code=303)
+
+
+@app.get('/auth/logout')
+def auth_logout(request: Request):
+    request.session.clear()
+    return RedirectResponse('/auth/login', status_code=303)

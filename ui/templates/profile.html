@@ -13,6 +13,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:8px;border-bottom:1px so
 </style>
 </head><body>
 <h2>👤 MindTrade OS Profile</h2>
+<div class='card'>ผู้ใช้: <strong>{{ user_email or '-' }}</strong> | <a href='/auth/logout'>Logout</a></div>
 <div class='card'><strong>Announcement:</strong> {{ announcement }}</div>
 
 {% if not rec %}

@@ -7,3 +7,4 @@ httpx
 ccxt
 pandas
 numpy
+itsdangerous==2.2.0
