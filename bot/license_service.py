@@ -118,3 +118,24 @@ def find_licenses(query: str, limit: int = 200):
         if q in blob.lower():
             out.append(r)
     return out[:limit]
+
+
+def list_payments_for_license(token: str, limit: int = 20):
+    db = _load()
+    # resolve email from token
+    email = None
+    for r in db.get('licenses', []):
+        if r.get('license_token') == token:
+            email = (r.get('email') or '').strip().lower()
+            break
+    if not email:
+        return []
+
+    out = []
+    for p in reversed(db.get('payments', [])):
+        p_email = str(p.get('email') or '').strip().lower()
+        if p_email == email:
+            out.append(p)
+        if len(out) >= limit:
+            break
+    return out

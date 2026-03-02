@@ -12,7 +12,7 @@ from bot.config_runtime import RUNTIME_CONFIG
 from bot.engine import run_engine, exchange
 from bot.state import bot_state
 from bot.license import license_ok
-from bot.license_service import issue_license, list_licenses, record_payment, has_payment_event, set_license_active, delete_license, renew_license, find_licenses
+from bot.license_service import issue_license, list_licenses, record_payment, has_payment_event, set_license_active, delete_license, renew_license, find_licenses, list_payments_for_license
 
 load_dotenv()
 
@@ -430,13 +430,46 @@ def admin_send_token(token: str = Form(...), target_chat_id: str = Form(...)):
 def profile_page(request: Request, token: str = ''):
     from pathlib import Path
     import json
+    from datetime import datetime, timezone
+
     db_path = Path('/Users/adrenaline/trading-bot/licenses/licenses.json')
     rec = None
+    days_left = None
+    expiry_state = 'unknown'
+    payments = []
+
     if db_path.exists() and token:
         db = json.loads(db_path.read_text())
         rec = next((x for x in db.get('licenses',[]) if x.get('license_token')==token), None)
-    announcement = "🚀 Welcome to MindTrade OS — New: license renew + Telegram token delivery"
-    return templates.TemplateResponse('profile.html', {'request': request, 'rec': rec, 'token': token, 'announcement': announcement})
+
+    if rec:
+        exp_raw = rec.get('expires_at')
+        try:
+            exp = datetime.fromisoformat(str(exp_raw))
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            delta_days = int((exp - now).total_seconds() // 86400)
+            days_left = delta_days
+            if delta_days < 0:
+                expiry_state = 'expired'
+            elif delta_days <= 7:
+                expiry_state = 'warning'
+            else:
+                expiry_state = 'ok'
+        except Exception:
+            expiry_state = 'unknown'
+
+        payments = list_payments_for_license(rec.get('license_token',''), limit=20)
+
+    announcement = "🚀 Welcome to MindTrade OS — New: profile expiry badge + payment history"
+    return templates.TemplateResponse('profile.html', {
+        'request': request,
+        'rec': rec,
+        'token': token,
+        'announcement': announcement,
+        'days_left': days_left,
+        'expiry_state': expiry_state,
+        'payments': payments,
+    })
 
 
 @app.post('/profile/renew')

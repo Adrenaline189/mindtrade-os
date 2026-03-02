@@ -1,6 +1,16 @@
 <!doctype html>
 <html><head><meta charset='utf-8'><title>MindTrade OS Profile</title>
-<style>body{font-family:Inter,Arial;background:#0b1020;color:#eef4ff;padding:20px}.card{background:#121a32;border:1px solid #2a3a68;border-radius:12px;padding:14px;margin-bottom:12px}.muted{color:#9bb0d8}.ok{color:#58e89a}.bad{color:#ff8a96}input{padding:8px;border-radius:8px;border:1px solid #334a7d;background:#0f1530;color:#fff}</style>
+<style>
+body{font-family:Inter,Arial;background:#0b1020;color:#eef4ff;padding:20px}
+.card{background:#121a32;border:1px solid #2a3a68;border-radius:12px;padding:14px;margin-bottom:12px}
+.muted{color:#9bb0d8}.ok{color:#58e89a}.bad{color:#ff8a96}.warn{color:#ffd17a}
+.badge{display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;border:1px solid #334a7d;background:#0f1530}
+.badge.ok{border-color:#2f7f5d;color:#7ef5bc}
+.badge.warn{border-color:#8a6a34;color:#ffd17a}
+.badge.bad{border-color:#8a3b49;color:#ff8a96}
+input{padding:8px;border-radius:8px;border:1px solid #334a7d;background:#0f1530;color:#fff}
+table{width:100%;border-collapse:collapse}th,td{padding:8px;border-bottom:1px solid #2a3a68;text-align:left}
+</style>
 </head><body>
 <h2>👤 MindTrade OS Profile</h2>
 <div class='card'><strong>Announcement:</strong> {{ announcement }}</div>
@@ -25,6 +35,16 @@
     {% endif %}
   </div>
   <div><strong>Expires at:</strong> {{ rec.expires_at }}</div>
+  <div><strong>Days left:</strong>
+    {% if days_left is not none %}
+      {{ days_left }} วัน
+      {% if expiry_state == 'ok' %}<span class='badge ok'>ปกติ</span>{% endif %}
+      {% if expiry_state == 'warning' %}<span class='badge warn'>ใกล้หมดอายุ (&le; 7 วัน)</span>{% endif %}
+      {% if expiry_state == 'expired' %}<span class='badge bad'>หมดอายุแล้ว</span>{% endif %}
+    {% else %}
+      <span class='muted'>ไม่ทราบ</span>
+    {% endif %}
+  </div>
   <div><strong>Devices:</strong> {{ rec.devices|length }} / {{ rec.max_devices }}</div>
   <div><strong>Token:</strong> <code>{{ rec.license_token }}</code></div>
 </div>
@@ -36,6 +56,28 @@
     <label>Days: <input name='days' value='30' style='width:90px'></label>
     <button type='submit'>Renew</button>
   </form>
+</div>
+
+<div class='card'>
+  <h3>💳 Payment History</h3>
+  {% if payments and payments|length > 0 %}
+  <table>
+    <thead><tr><th>Time</th><th>Status</th><th>Plan</th><th>Amount</th><th>Event ID</th></tr></thead>
+    <tbody>
+      {% for p in payments %}
+      <tr>
+        <td>{{ p.paid_at or p.time or '-' }}</td>
+        <td>{{ p.status or '-' }}</td>
+        <td>{{ p.plan or '-' }}</td>
+        <td>{{ p.amount or '-' }} {{ p.currency or '' }}</td>
+        <td><code>{{ p.event_id or '-' }}</code></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class='muted'>ยังไม่มีประวัติการชำระเงิน</div>
+  {% endif %}
 </div>
 
 <div class='card'>
