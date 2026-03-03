@@ -1,20 +1,20 @@
 import threading
 
-from bot.config_runtime import RUNTIME_CONFIG
-from bot.engine import run_engine, set_active_tenant
-from bot.runtime_store import load_runtime_config
-from bot.state import bot_state
+from bot.tenant_context import default_tenant_id
+from bot.tenant_worker_manager import tenant_worker_manager
 
 
 class EngineManager:
     """
-    Phase 1: single shared engine process.
-    TODO: spawn one worker per tenant in Phase 2.
+    Backward-compatible facade.
+
+    - Existing UI/API still calls EngineManager.start/stop.
+    - Underneath, we now route to per-tenant workers.
     """
 
     def __init__(self):
         self._lock = threading.Lock()
-        self._active_tenant_id = "default"
+        self._active_tenant_id = default_tenant_id()
 
     @property
     def active_tenant_id(self) -> str:
@@ -22,20 +22,22 @@ class EngineManager:
 
     def start(self, tenant_id: str) -> bool:
         with self._lock:
-            self._active_tenant_id = tenant_id or self._active_tenant_id
-            set_active_tenant(self._active_tenant_id)
-            load_runtime_config(self._active_tenant_id)
-            RUNTIME_CONFIG["MODE"] = "LIVE"
-            RUNTIME_CONFIG["ALLOW_LIVE_ORDERS"] = True
-            if bot_state["running"]:
-                return False
-            bot_state["running"] = True
-            threading.Thread(target=run_engine, daemon=True).start()
-            return True
+            self._active_tenant_id = (tenant_id or self._active_tenant_id).strip() or default_tenant_id()
+            return tenant_worker_manager.start(self._active_tenant_id)
 
-    def stop(self):
+    def stop(self, tenant_id: str | None = None):
         with self._lock:
-            bot_state["running"] = False
+            tid = (tenant_id or self._active_tenant_id).strip() if tenant_id is not None else None
+        if tid:
+            return tenant_worker_manager.stop(tid)
+        return tenant_worker_manager.stop_all() > 0
+
+    def status(self, tenant_id: str | None = None) -> dict:
+        tid = tenant_id or self._active_tenant_id
+        return tenant_worker_manager.status(tid)
+
+    def list_status(self) -> list[dict]:
+        return tenant_worker_manager.list_status()
 
 
 engine_manager = EngineManager()

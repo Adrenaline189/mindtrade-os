@@ -12,7 +12,6 @@ from starlette.middleware.sessions import SessionMiddleware
 from bot.config_runtime import RUNTIME_CONFIG
 from bot.engine import exchange, apply_leverage_settings
 from bot.engine_manager import engine_manager
-from bot.state import bot_state
 from bot.license import license_ok
 from bot.license_service import issue_license, list_licenses, record_payment, has_payment_event, set_license_active, delete_license, renew_license, find_licenses, list_payments_for_license
 from bot.auth_service import create_user, verify_user, resolve_user_tenant
@@ -48,6 +47,10 @@ def current_tenant_id(request: Request | None = None) -> str:
         request.session['tenant_id'] = tenant_id
         return tenant_id
     return default_tenant_id()
+
+
+def tenant_running(tenant_id: str) -> bool:
+    return bool(engine_manager.status(tenant_id).get("running", False))
 
 
 def load_trades(tenant_id: str, limit: int | None = None):
@@ -134,7 +137,7 @@ def dashboard(request: Request):
             {
                 "request": request,
                 "cfg": RUNTIME_CONFIG,
-                "running": bot_state["running"],
+                "running": tenant_running(tenant_id),
                 "trades": trades[-50:],
                 "summary": summary,
                 "tenant_id": tenant_id,
@@ -146,10 +149,12 @@ def dashboard(request: Request):
 @app.get('/health')
 def health():
     lic_ok, lic_reason = license_ok()
+    workers = engine_manager.list_status()
     return {
         'ok': True,
-        'running': bot_state['running'],
+        'running': any(w.get('running') for w in workers),
         'active_tenant_id': engine_manager.active_tenant_id,
+        'workers': workers,
         'mode': RUNTIME_CONFIG['MODE'],
         'allow_live': RUNTIME_CONFIG['ALLOW_LIVE_ORDERS'],
         'panic_stop': RUNTIME_CONFIG['PANIC_STOP'],
@@ -157,6 +162,28 @@ def health():
         'license_ok': lic_ok,
         'license_reason': lic_reason,
     }
+
+
+@app.get('/admin/workers')
+def admin_workers():
+    return JSONResponse({'workers': engine_manager.list_status()})
+
+
+@app.post('/admin/workers/start')
+def admin_workers_start(tenant_id: str = Form(...)):
+    started = engine_manager.start(tenant_id)
+    return JSONResponse({'ok': True, 'started': started, 'status': engine_manager.status(tenant_id)})
+
+
+@app.post('/admin/workers/stop')
+def admin_workers_stop(tenant_id: str = Form(...)):
+    stopped = engine_manager.stop(tenant_id)
+    return JSONResponse({'ok': True, 'stopped': bool(stopped), 'status': engine_manager.status(tenant_id)})
+
+
+@app.get('/admin/workers/{tenant_id}')
+def admin_worker_status(tenant_id: str):
+    return JSONResponse(engine_manager.status(tenant_id))
 
 
 @app.get('/api/summary')
@@ -170,7 +197,7 @@ def api_summary(request: Request, symbol: str | None = None):
         blocked_reasons = Counter((t.get('note') or '').split(':')[0] for t in trades if t.get('result')=='BLOCKED')
         positions = fetch_open_positions()
         exposure = sum(abs(float(p.get('unrealizedPnl') or 0)) for p in positions)
-        return JSONResponse({'summary': trade_summary(trades), 'running': bot_state['running'], 'mode': RUNTIME_CONFIG['MODE'], 'symbol': symbol or 'ALL', 'tenant_id': tenant_id, 'blocked_reasons': dict(blocked_reasons), 'open_positions_count': len(positions), 'open_positions': positions, 'exposure_abs_upnl': round(exposure,4)})
+        return JSONResponse({'summary': trade_summary(trades), 'running': tenant_running(tenant_id), 'mode': RUNTIME_CONFIG['MODE'], 'symbol': symbol or 'ALL', 'tenant_id': tenant_id, 'blocked_reasons': dict(blocked_reasons), 'open_positions_count': len(positions), 'open_positions': positions, 'exposure_abs_upnl': round(exposure,4)})
 
 
 @app.get('/api/events')
@@ -268,8 +295,9 @@ def start_bot(request: Request):
 
 
 @app.post("/stop")
-def stop_bot():
-    engine_manager.stop()
+def stop_bot(request: Request):
+    tenant_id = current_tenant_id(request)
+    engine_manager.stop(tenant_id)
     return RedirectResponse("/", status_code=303)
 
 
@@ -365,7 +393,7 @@ def update_config(
             pass
 
         try:
-            if bot_state.get("running") and RUNTIME_CONFIG.get("MODE") == "LIVE" and RUNTIME_CONFIG.get("ALLOW_LIVE_ORDERS"):
+            if tenant_running(tenant_id) and RUNTIME_CONFIG.get("MODE") == "LIVE" and RUNTIME_CONFIG.get("ALLOW_LIVE_ORDERS"):
                 apply_leverage_settings()
         except Exception:
             pass

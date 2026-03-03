@@ -46,7 +46,23 @@ This project now supports tenant-scoped storage per logged-in user.
 ./venv/bin/python scripts/migrate_to_tenants.py
 ```
 
-Architecture notes and limitations: `docs/multi-tenant-phase1.md`
+Architecture notes and limitations:
+- `docs/multi-tenant-phase1.md`
+- `docs/multi-tenant-phase2.md`
+
+### Worker admin APIs (Phase 2)
+
+```bash
+curl http://127.0.0.1:8000/admin/workers
+curl -X POST -F "tenant_id=default" http://127.0.0.1:8000/admin/workers/start
+curl -X POST -F "tenant_id=default" http://127.0.0.1:8000/admin/workers/stop
+```
+
+Smoke check:
+
+```bash
+./venv/bin/python scripts/smoke_workers.py
+```
 
 ## Bot service scripts
 
