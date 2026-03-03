@@ -3,8 +3,10 @@ import time
 from dataclasses import dataclass
 
 from bot.engine import run_engine_for_tenant
+from bot.license_service import license_state_for_email
 from bot.state import create_bot_state
 from bot.tenant_context import default_tenant_id
+from bot.tenant_store import get_primary_email_for_tenant
 
 
 @dataclass
@@ -35,8 +37,21 @@ class TenantWorkerManager:
     def _normalize_tenant(self, tenant_id: str | None) -> str:
         return (tenant_id or default_tenant_id()).strip() or default_tenant_id()
 
+    def _license_gate(self, tenant_id: str) -> tuple[bool, str]:
+        email = get_primary_email_for_tenant(tenant_id)
+        if not email and tenant_id == default_tenant_id():
+            # default/system tenant can run without customer license binding
+            return True, 'default_tenant'
+        if not email:
+            return False, 'tenant_email_not_found'
+        ok, reason, _ = license_state_for_email(email)
+        return ok, reason
+
     def start(self, tenant_id: str | None) -> bool:
         tid = self._normalize_tenant(tenant_id)
+        lic_ok, lic_reason = self._license_gate(tid)
+        if not lic_ok:
+            return False
         with self._lock:
             existing = self._workers.get(tid)
             if existing and existing.thread.is_alive():
@@ -44,6 +59,8 @@ class TenantWorkerManager:
 
             state = create_bot_state()
             state["running"] = True
+            state["license_ok"] = True
+            state["license_reason"] = lic_reason
             stop_event = threading.Event()
             thread = threading.Thread(
                 target=run_engine_for_tenant,
@@ -52,6 +69,7 @@ class TenantWorkerManager:
                     "stop_event": stop_event,
                     "state": state,
                     "isolation_lock": self._engine_isolation_lock,
+                    "license_gate": self._license_gate,
                 },
                 daemon=True,
                 name=f"tenant-worker-{tid}",
@@ -88,10 +106,17 @@ class TenantWorkerManager:
 
     def status(self, tenant_id: str | None) -> dict:
         tid = self._normalize_tenant(tenant_id)
+        gate_ok, gate_reason = self._license_gate(tid)
         with self._lock:
             worker = self._workers.get(tid)
             if not worker:
-                return {"tenant_id": tid, "running": False, "exists": False}
+                return {
+                    "tenant_id": tid,
+                    "running": False,
+                    "exists": False,
+                    "license_ok": gate_ok,
+                    "license_reason": gate_reason,
+                }
             alive = worker.thread.is_alive()
             return {
                 "tenant_id": tid,
@@ -99,6 +124,8 @@ class TenantWorkerManager:
                 "exists": True,
                 "thread_name": worker.thread.name,
                 "started_at": worker.started_at,
+                "license_ok": bool(worker.state.get('license_ok', gate_ok)),
+                "license_reason": worker.state.get('license_reason', gate_reason),
             }
 
     def list_status(self) -> list[dict]:

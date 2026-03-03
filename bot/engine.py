@@ -298,7 +298,7 @@ def apply_leverage_settings():
             notify(f"⚠️ leverage set failed {symbol}: {e}")
 
 
-def run_engine_for_tenant(tenant_id: str, stop_event=None, state=None, isolation_lock=None):
+def run_engine_for_tenant(tenant_id: str, stop_event=None, state=None, isolation_lock=None, license_gate=None):
     state = state or bot_state
     with tenant_scope(tenant_id):
         set_active_tenant(tenant_id)
@@ -306,12 +306,26 @@ def run_engine_for_tenant(tenant_id: str, stop_event=None, state=None, isolation
         notify(f"🚀 Trading bot started (tenant={tenant_id})")
 
     leverage_applied = False
+    last_license_check_at = 0.0
     while True:
         if stop_event is not None and stop_event.is_set():
             break
         if stop_event is None and not state.get("running", False):
             break
         try:
+            now_ts = time.time()
+            if license_gate is not None and (now_ts - last_license_check_at >= 30):
+                last_license_check_at = now_ts
+                lic_ok, lic_reason = license_gate(tenant_id)
+                state["license_ok"] = bool(lic_ok)
+                state["license_reason"] = lic_reason
+                if not lic_ok:
+                    notify(f"⛔ worker auto-stop tenant={tenant_id} reason={lic_reason}", force=True)
+                    if stop_event is not None:
+                        stop_event.set()
+                    state["running"] = False
+                    break
+
             if isolation_lock is not None:
                 isolation_lock.acquire()
             try:

@@ -16,13 +16,13 @@ def main():
     s1 = engine_manager.start(t1)
     s2 = engine_manager.start(t2)
 
-    workers = engine_manager.list_status()
-    assert any(w.get("tenant_id") == t1 for w in workers), "default worker missing"
-    assert any(w.get("tenant_id") == t2 for w in workers), "tenant_smoke worker missing"
-
     st1 = engine_manager.status(t1)
     st2 = engine_manager.status(t2)
-    assert st1.get("exists") and st2.get("exists"), "status missing"
+
+    assert st1.get("exists"), "default status missing"
+    # tenant_smoke usually has no mapped email/license, so start should be blocked
+    assert (s2 is False), "tenant_smoke should be blocked by license gate"
+    assert st2.get("license_ok") is False, "tenant_smoke license gate should fail"
 
     engine_manager.stop(t1)
     engine_manager.stop(t2)

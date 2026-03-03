@@ -139,3 +139,32 @@ def list_payments_for_license(token: str, limit: int = 20):
         if len(out) >= limit:
             break
     return out
+
+
+def get_license_by_email(email: str):
+    target = (email or '').strip().lower()
+    if not target:
+        return None
+    db = _load()
+    for rec in reversed(db.get('licenses', [])):
+        if (rec.get('email') or '').strip().lower() == target:
+            return rec
+    return None
+
+
+def license_state_for_email(email: str) -> tuple[bool, str, dict | None]:
+    rec = get_license_by_email(email)
+    if not rec:
+        return False, 'license_not_found', None
+    if rec.get('active') is False:
+        return False, 'suspended', rec
+
+    exp_raw = rec.get('expires_at')
+    if exp_raw:
+        try:
+            if datetime.utcnow() > datetime.fromisoformat(exp_raw):
+                return False, 'expired', rec
+        except Exception:
+            return False, 'invalid_expiry', rec
+
+    return True, 'valid', rec

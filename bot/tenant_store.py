@@ -73,3 +73,30 @@ def get_tenant_for_user(email: str) -> str:
     )
     _save(data)
     return tenant_id
+
+
+def list_tenants() -> list[dict]:
+    data = _load()
+    tenants = list(data.get("tenants", []))
+    mappings = data.get("user_tenants", [])
+
+    for t in tenants:
+        tid = t.get("tenant_id")
+        emails = [
+            (m.get("email") or "").strip().lower()
+            for m in mappings
+            if (m.get("tenant_id") or "") == tid
+        ]
+        t["emails"] = [e for e in emails if e]
+    return tenants
+
+
+def get_primary_email_for_tenant(tenant_id: str) -> str:
+    tid = (tenant_id or "").strip()
+    if not tid:
+        return ""
+    data = _load()
+    for m in data.get("user_tenants", []):
+        if (m.get("tenant_id") or "") == tid:
+            return (m.get("email") or "").strip().lower()
+    return ""

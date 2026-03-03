@@ -18,7 +18,7 @@ from bot.auth_service import create_user, verify_user, resolve_user_tenant
 from bot.paths import get_tenant_paths
 from bot.runtime_store import load_runtime_config, save_runtime_config
 from bot.tenant_context import default_tenant_id, tenant_scope
-from bot.tenant_store import get_tenant_for_user
+from bot.tenant_store import get_tenant_for_user, list_tenants
 from bot.user_api_store import set_user_api, has_user_api, get_user_api
 
 load_dotenv()
@@ -169,10 +169,31 @@ def admin_workers():
     return JSONResponse({'workers': engine_manager.list_status()})
 
 
+@app.get('/admin/workers/ui')
+def admin_workers_ui(request: Request):
+    tenants = list_tenants()
+    statuses = {w.get('tenant_id'): w for w in engine_manager.list_status()}
+    rows = []
+    for t in tenants:
+        tid = t.get('tenant_id')
+        st = statuses.get(tid) or engine_manager.status(tid)
+        rows.append({
+            'tenant_id': tid,
+            'name': t.get('name') or tid,
+            'emails': t.get('emails') or [],
+            'running': st.get('running', False),
+            'license_ok': st.get('license_ok', True),
+            'license_reason': st.get('license_reason', ''),
+        })
+    rows.sort(key=lambda x: x['tenant_id'])
+    return templates.TemplateResponse('workers_admin.html', {'request': request, 'rows': rows})
+
+
 @app.post('/admin/workers/start')
 def admin_workers_start(tenant_id: str = Form(...)):
     started = engine_manager.start(tenant_id)
-    return JSONResponse({'ok': True, 'started': started, 'status': engine_manager.status(tenant_id)})
+    status = engine_manager.status(tenant_id)
+    return JSONResponse({'ok': True, 'started': started, 'status': status})
 
 
 @app.post('/admin/workers/stop')

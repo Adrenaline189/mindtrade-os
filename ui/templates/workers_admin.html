@@ -1,0 +1,50 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Admin - Workers</title>
+  <style>
+    body{font-family:system-ui;margin:24px}
+    table{border-collapse:collapse;width:100%}
+    th,td{border:1px solid #ddd;padding:8px;text-align:left}
+    .ok{color:#0a7f2e;font-weight:600}
+    .bad{color:#b42318;font-weight:600}
+    form{display:inline}
+  </style>
+</head>
+<body>
+  <h2>Admin Worker Control</h2>
+  <p><a href="/admin/licenses">← Licenses</a> · <a href="/admin/workers">Workers API (JSON)</a></p>
+  <table>
+    <thead>
+      <tr>
+        <th>Tenant</th>
+        <th>Owner Email(s)</th>
+        <th>Worker</th>
+        <th>License</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td><code>{{ r.tenant_id }}</code><br><small>{{ r.name }}</small></td>
+        <td>{{ ', '.join(r.emails) if r.emails else '-' }}</td>
+        <td>{% if r.running %}<span class="ok">running</span>{% else %}<span class="bad">stopped</span>{% endif %}</td>
+        <td>{% if r.license_ok %}<span class="ok">ok</span>{% else %}<span class="bad">{{ r.license_reason }}</span>{% endif %}</td>
+        <td>
+          <form method="post" action="/admin/workers/start">
+            <input type="hidden" name="tenant_id" value="{{ r.tenant_id }}" />
+            <button type="submit">Start</button>
+          </form>
+          <form method="post" action="/admin/workers/stop">
+            <input type="hidden" name="tenant_id" value="{{ r.tenant_id }}" />
+            <button type="submit">Stop</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>
