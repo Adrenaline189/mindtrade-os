@@ -25,7 +25,7 @@ class EngineManager:
             self._active_tenant_id = (tenant_id or self._active_tenant_id).strip() or default_tenant_id()
             return tenant_worker_manager.start(self._active_tenant_id)
 
-    def stop(self, tenant_id: str | None = None, timeout_sec: float = 15.0):
+    def stop(self, tenant_id: str | None = None, timeout_sec: float = 20.0):
         with self._lock:
             tid = (tenant_id or self._active_tenant_id).strip() if tenant_id is not None else None
         if tid:

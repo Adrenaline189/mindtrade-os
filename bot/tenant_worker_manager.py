@@ -189,7 +189,7 @@ class TenantWorkerManager:
             thread.start()
             return True
 
-    def stop(self, tenant_id: str | None, timeout_sec: float = 15.0) -> bool:
+    def stop(self, tenant_id: str | None, timeout_sec: float = 20.0) -> bool:
         tid = self._normalize_tenant(tenant_id)
         worker = None
         started_wait = time.monotonic()
@@ -205,6 +205,11 @@ class TenantWorkerManager:
 
         worker.thread.join(timeout=max(0.1, float(timeout_sec)))
         timed_out = worker.thread.is_alive()
+        if timed_out:
+            # Avoid near-boundary false positives when the thread exits right
+            # after join() timeout returns.
+            worker.thread.join(timeout=0.25)
+            timed_out = worker.thread.is_alive()
         stop_latency = max(0.0, time.monotonic() - started_wait)
 
         with self._lock:
@@ -217,7 +222,7 @@ class TenantWorkerManager:
                     self._workers.pop(tid, None)
         return True
 
-    def stop_all(self, timeout_sec: float = 15.0) -> int:
+    def stop_all(self, timeout_sec: float = 20.0) -> int:
         with self._lock:
             ids = list(self._workers.keys())
         count = 0

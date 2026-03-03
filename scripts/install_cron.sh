@@ -11,7 +11,7 @@ mv "${TMP}.new" "$TMP"
 # Every 5 minutes watchdog
 printf "*/5 * * * * %s/scripts/watchdog_bot.sh >> %s/logs/watchdog.log 2>&1\n" "$ROOT" "$ROOT" >> "$TMP"
 # Daily report 23:55
-printf "55 23 * * * %s/scripts/performance_report.py > %s/logs/performance-$(date +\\%F).log 2>&1\n" "$ROOT" "$ROOT" >> "$TMP"
+printf "55 23 * * * /usr/bin/env python3 %s/scripts/performance_report.py > %s/logs/performance-\$(date +\\%F).log 2>&1\n" "$ROOT" "$ROOT" >> "$TMP"
 
 crontab "$TMP"
 rm -f "$TMP"
