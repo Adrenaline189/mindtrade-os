@@ -20,17 +20,19 @@ class TenantWorker:
 
 class TenantWorkerManager:
     """
-    Phase 2.1 worker manager hardening.
+    Phase 3 worker manager hardening.
 
     Safety additions:
     - stale worker cleanup (dead thread records purged)
     - start idempotency (`already_running` state marker)
     - stop timeout observability (`stop_timed_out` marker)
+    - per-tenant isolation lock (no global lock serialization)
+    - crash containment metadata per worker
     """
 
     def __init__(self):
         self._lock = threading.Lock()
-        self._engine_isolation_lock = threading.Lock()
+        self._tenant_locks: dict[str, threading.Lock] = {}
         self._workers: dict[str, TenantWorker] = {}
         self._runner = None
 
@@ -56,6 +58,30 @@ class TenantWorkerManager:
         for tid in stale_ids:
             self._workers.pop(tid, None)
 
+    def _tenant_lock(self, tenant_id: str) -> threading.Lock:
+        with self._lock:
+            lock = self._tenant_locks.get(tenant_id)
+            if lock is None:
+                lock = threading.Lock()
+                self._tenant_locks[tenant_id] = lock
+            return lock
+
+    def _run_worker(self, tenant_id: str, stop_event: threading.Event, state: dict):
+        state["running"] = True
+        try:
+            self._runner(
+                tenant_id=tenant_id,
+                stop_event=stop_event,
+                state=state,
+                isolation_lock=self._tenant_lock(tenant_id),
+                license_gate=self._license_gate,
+            )
+        except Exception as e:
+            state["last_error"] = str(e)
+            state["crashed"] = True
+        finally:
+            state["running"] = False
+
     def start(self, tenant_id: str | None) -> bool:
         tid = self._normalize_tenant(tenant_id)
         lic_ok, lic_reason = self._license_gate(tid)
@@ -75,19 +101,19 @@ class TenantWorkerManager:
             state["already_running"] = False
             state["stop_timed_out"] = False
             state["stop_timeout_sec"] = 0
+            state["last_error"] = ""
+            state["crashed"] = False
             stop_event = threading.Event()
             start_nonce = time.time()
             if self._runner is None:
                 from bot.engine import run_engine_for_tenant
                 self._runner = run_engine_for_tenant
             thread = threading.Thread(
-                target=self._runner,
+                target=self._run_worker,
                 kwargs={
                     "tenant_id": tid,
                     "stop_event": stop_event,
                     "state": state,
-                    "isolation_lock": self._engine_isolation_lock,
-                    "license_gate": self._license_gate,
                 },
                 daemon=True,
                 name=f"tenant-worker-{tid}",
@@ -162,6 +188,9 @@ class TenantWorkerManager:
                 "already_running": bool(worker.state.get("already_running", False)),
                 "stop_timed_out": bool(worker.state.get("stop_timed_out", False)),
                 "stop_timeout_sec": float(worker.state.get("stop_timeout_sec", 0)),
+                "last_error": worker.state.get("last_error", ""),
+                "crashed": bool(worker.state.get("crashed", False)),
+                "ticks": int(worker.state.get("ticks", 0)),
             }
 
     def list_status(self) -> list[dict]:
