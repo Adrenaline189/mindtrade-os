@@ -1,4 +1,5 @@
 import csv
+import re
 import threading
 from collections import Counter
 from pathlib import Path
@@ -153,18 +154,43 @@ def api_events(limit: int = 200):
 
 @app.get('/api/chart')
 def api_chart(limit: int = 200, symbol: str | None = None):
-    trades = load_trades(limit=limit)
-    if symbol:
-        trades = [t for t in trades if t.get('symbol') == symbol]
-    labels, prices, markers = [], [], []
-    for t in trades:
-        labels.append(t.get('time'))
-        try:
-            prices.append(float(t.get('close') or 0))
-        except Exception:
-            prices.append(None)
-        markers.append(t.get('result'))
-    return JSONResponse({'labels': labels, 'prices': prices, 'markers': markers})
+    # Prefer Binance OHLCV for real multi-symbol chart
+    symbols = [symbol] if symbol else list(RUNTIME_CONFIG.get('SYMBOLS', []))
+    symbols = symbols[:3] if symbols else ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
+
+    try:
+        exchange.load_markets()
+        raw = {}
+        ts_union = set()
+        for sym in symbols:
+            ohlcv = exchange.fetch_ohlcv(sym, timeframe='5m', limit=limit)
+            raw[sym] = ohlcv
+            for row in ohlcv:
+                ts_union.add(int(row[0]))
+
+        ts_sorted = sorted(ts_union)
+        labels = [__import__('datetime').datetime.utcfromtimestamp(t/1000).strftime('%H:%M') for t in ts_sorted]
+
+        series = {}
+        for sym in symbols:
+            idx = {int(r[0]): float(r[4]) for r in raw.get(sym, [])}
+            series[sym] = [idx.get(t) for t in ts_sorted]
+
+        return JSONResponse({'labels': labels, 'series': series, 'source': 'binance_ohlcv'})
+    except Exception:
+        # fallback to local trade timeline
+        trades = load_trades(limit=limit)
+        if symbol:
+            trades = [t for t in trades if t.get('symbol') == symbol]
+        labels, prices, markers = [], [], []
+        for t in trades:
+            labels.append(t.get('time'))
+            try:
+                prices.append(float(t.get('close') or 0))
+            except Exception:
+                prices.append(None)
+            markers.append(t.get('result'))
+        return JSONResponse({'labels': labels, 'prices': prices, 'markers': markers, 'source': 'local_trades'})
 
 
 
@@ -564,3 +590,43 @@ def setup_page(request: Request):
         'request': request,
         'vps_ip': '185.230.138.51',
     })
+
+
+BOT_ONLY_SCOPE_MSG = "ขออภัยค่ะ ระบบนี้ตอบเฉพาะการใช้งาน MindTrade OS และบอทเทรดเท่านั้นค่ะ"
+
+
+def _help_answer(q: str) -> str:
+    text = (q or '').strip().lower()
+    if not text:
+        return "พิมพ์คำถามเกี่ยวกับการใช้งานบอทได้เลยค่ะ เช่น leverage, cooldown, api key, start/stop"
+
+    out_of_scope = ['หวย', 'ฟุตบอล', 'หนัง', 'เพลง', 'การเมือง', 'สุขภาพ', 'อาหาร', 'ท่องเที่ยว']
+    if any(k in text for k in out_of_scope):
+        return BOT_ONLY_SCOPE_MSG
+
+    rules = [
+        (['leverage by symbol', 'เลเวอเรจแยก', 'leverage'], "Leverage (x) คือค่าเริ่มต้นทุกเหรียญ ส่วน Leverage by symbol คือค่าแยกรายเหรียญที่มีลำดับความสำคัญสูงกว่า\nตัวอย่าง: BTC/USDT:5,ETH/USDT:3"),
+        (['cooldown', 'พักไม้', 'cooldown minutes'], "Cooldown minutes คือเวลาพักหลังเข้าไม้ก่อนเข้าไม้ใหม่ (นาที)\nเช่น 120 = เข้าไม้แล้วพัก 2 ชั่วโมงก่อนสัญญาณใหม่"),
+        (['api', 'binance', '-2015', 'permission', 'whitelist'], "การตั้ง Binance API ที่ถูกต้อง:\n1) Enable Reading ON\n2) Enable Futures ON\n3) Withdraw OFF\n4) ถ้าเปิด IP restriction ให้ whitelist IP VPS: 185.230.138.51\n5) ถ้าเจอ -2015 ให้เช็ก key/ip/permission อีกครั้ง"),
+        (['start', 'เริ่มบอท', 'รันบอท'], "เริ่มบอทจาก Dashboard ด้วยปุ่ม START ได้เลยค่ะ และเช็กที่ /health ว่า running=true"),
+        (['stop', 'หยุดบอท', 'panic'], "หยุดบอทปกติใช้ STOP\nถ้าต้องหยุดฉุกเฉินให้ใช้ PANIC"),
+        (['risk', 'risk per trade', 'ความเสี่ยง'], "Risk / Trade คือความเสี่ยงต่อไม้\nตัวอย่าง 0.005 = 0.5% ต่อไม้ แนะนำเริ่มที่ 0.005-0.01"),
+        (['หมดอายุ', 'expire', 'license', 'สมาชิก'], "ตรวจสอบสิทธิ์สมาชิกได้ที่หน้า Profile\nระบบจะแสดง plan, วันหมดอายุ และ days left พร้อมปุ่มต่ออายุ"),
+    ]
+    for keys, ans in rules:
+        if any(k in text for k in keys):
+            return ans
+
+    return "น้องมายด์ตอบได้เฉพาะคู่มือใช้งาน MindTrade OS ค่ะ\nลองถามแบบนี้ได้: leverage ต่างกันยังไง, cooldown คืออะไร, ตั้งค่า API Binance ยังไง, วิธี start/stop บอท"
+
+
+@app.get('/help-chat')
+def help_chat_page(request: Request):
+    return templates.TemplateResponse('help_chat.html', {'request': request})
+
+
+@app.post('/api/help-chat')
+def api_help_chat(payload: dict):
+    q = str(payload.get('question') or '')
+    ans = _help_answer(q)
+    return JSONResponse({'ok': True, 'answer': ans})

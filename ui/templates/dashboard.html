@@ -63,6 +63,16 @@
     .small { color:var(--muted); font-size:12px; }
     .toolbar { display:flex; gap:8px; margin:10px 0; flex-wrap:wrap; }
     .sticky-panic { position:fixed; right:16px; bottom:16px; z-index:1000; display:flex; gap:8px; }
+    .floating-help{position:fixed;right:16px;bottom:70px;z-index:1000;}
+    .floating-help a{display:inline-block;background:linear-gradient(180deg,#3f6de0,#2f56b7);color:#fff;padding:10px 12px;border-radius:999px;text-decoration:none;font-weight:700;box-shadow:0 8px 20px rgba(0,0,0,.35);}
+    .help-widget-btn{position:fixed;right:16px;bottom:70px;z-index:1100;background:linear-gradient(180deg,#3f6de0,#2f56b7);color:#fff;border:none;border-radius:999px;padding:10px 12px;font-weight:700;cursor:pointer;box-shadow:0 8px 20px rgba(0,0,0,.35);}
+    .help-widget{position:fixed;right:16px;bottom:120px;width:340px;max-width:calc(100vw - 24px);height:420px;z-index:1101;background:#101a34;border:1px solid #324a7f;border-radius:14px;display:none;flex-direction:column;overflow:hidden;box-shadow:0 16px 40px rgba(0,0,0,.45);}
+    .help-widget.open{display:flex;}
+    .help-widget-head{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid #2b3f6f;font-size:13px;}
+    .help-widget-body{padding:10px;display:flex;flex-direction:column;gap:8px;height:100%;}
+    .help-widget-log{flex:1;background:#0b1329;border:1px solid #2b3f6f;border-radius:10px;padding:8px;overflow:auto;font-size:13px;white-space:pre-wrap;}
+    .help-widget-input{display:flex;gap:6px;}
+    .help-widget-input input{margin:0;flex:1;}
     pre { background:#0d1530; border:1px solid #2a3d6f; border-radius:10px; padding:12px; overflow:auto; }
     canvas { border-radius:10px; }
     
@@ -91,6 +101,7 @@
   </div>
   <div class="toolbar" id="symbolTabs"></div>
   <div class="navx">
+    <a class="pill" href="/help-chat" style="text-decoration:none">💬 AI Help</a>
     <a class="pill" href="/profile" style="text-decoration:none">👤 Profile</a>
     <div class="pill">Dashboard</div>
     <div class="pill">Arbitrage AI Bots</div>
@@ -170,7 +181,46 @@
     <canvas id="priceChart" height="110"></canvas>
   </div>
 
-  <div class="main">
+  
+  <div class="card" style="margin-bottom:14px;">
+    <h3 style="margin-top:0">📘 คู่มือการกรอกค่า (Dashboard Guide)</h3>
+    <details open>
+      <summary><b>วิธีใช้งานแบบเร็ว</b></summary>
+      <ul class="small">
+        <li>1) ตั้ง Leverage และ Leverage by symbol ให้ตรงตามต้องการ</li>
+        <li>2) ตั้ง Risk / Trade ต่ำ ๆ ก่อนเริ่ม (เช่น 0.005 = 0.5%)</li>
+        <li>3) กด Save ก่อน แล้วค่อยกด START</li>
+        <li>4) ถ้าต้องการหยุดทันที ใช้ปุ่ม PANIC</li>
+      </ul>
+    </details>
+    <details>
+      <summary><b>ความหมายแต่ละช่อง</b></summary>
+      <ul class="small">
+        <li><b>RSI MIN / RSI MAX</b>: ช่วง RSI ที่ระบบยอมรับสำหรับเข้าเทรด</li>
+        <li><b>Golden Zone %</b>: ระยะย่อที่ยอมรับจากจุดอ้างอิง (ยิ่งน้อยยิ่งเข้ม)</li>
+        <li><b>Risk / Trade</b>: ความเสี่ยงต่อไม้ (0.01 = 1% ต่อไม้)</li>
+        <li><b>Leverage (x)</b>: เลเวอเรจเริ่มต้นสำหรับทุกเหรียญ</li>
+        <li><b>Margin Mode</b>: cross = แชร์มาร์จิ้นทั้งพอร์ต, isolated = แยกต่อเหรียญ</li>
+        <li><b>Leverage by symbol</b>: ตั้งแยกรายเหรียญ เช่น BTC/USDT:5,ETH/USDT:3 (ถ้ามี จะทับค่า Leverage ด้านบน)</li>
+        <li><b>Max trades/day</b>: จำกัดจำนวนไม้ต่อวัน</li>
+        <li><b>Cooldown minutes</b>: เวลาพักก่อนเข้าไม้ใหม่</li>
+        <li><b>Daily loss cap %</b>: ขาดทุนรวมต่อวันสูงสุดก่อนระบบกันเทรด</li>
+        <li><b>Symbols</b>: รายชื่อเหรียญที่ให้ระบบวิ่ง คั่นด้วยคอมม่า</li>
+      </ul>
+    </details>
+    <details>
+      <summary><b>ค่าแนะนำเริ่มต้น (Safe)</b></summary>
+      <ul class="small">
+        <li>Risk / Trade: <code>0.005</code></li>
+        <li>Leverage: <code>3-5x</code></li>
+        <li>Max trades/day: <code>2-3</code></li>
+        <li>Cooldown: <code>90-180</code> นาที</li>
+        <li>Daily loss cap: <code>1.5-2.5%</code></li>
+      </ul>
+    </details>
+  </div>
+
+<div class="main">
     <div class="card">
       <h3 style="margin-top:0"><span id="txt_events">🧾 Latest Events</span></h3>
       <div class="toolbar">
@@ -230,6 +280,18 @@
     <h3 style="margin-top:0">⚖️ Leverage by Symbol</h3>
     <table id="levTable"><thead><tr><th>Symbol</th><th>Leverage</th><th>Margin Mode</th></tr></thead><tbody></tbody></table>
   </div>
+
+<button class="help-widget-btn" id="helpWidgetToggle">💬 AI Help</button>
+<div class="help-widget" id="helpWidget">
+  <div class="help-widget-head"><b>AI Help (Bot Usage)</b><button id="helpWidgetClose" style="padding:4px 8px">✕</button></div>
+  <div class="help-widget-body">
+    <div class="help-widget-log" id="helpWidgetLog">สวัสดีค่ะ 👋 ถามเรื่องการใช้งานบอทได้เลย เช่น leverage, cooldown, API key</div>
+    <div class="help-widget-input">
+      <input id="helpWidgetQ" placeholder="พิมพ์คำถาม..." />
+      <button id="helpWidgetSend">ถาม</button>
+    </div>
+  </div>
+</div>
 
 <div class="sticky-panic">
   <form action="/panic" method="post" onsubmit="return confirm('ยืนยันเปิด PANIC STOP ?')"><button class="danger" id="txt_panic_btn">🛑 PANIC</button></form>
@@ -306,13 +368,23 @@ async function initFilters(){
 
 async function renderChart(){
   const qs = currentSymbol ? ('&symbol='+encodeURIComponent(currentSymbol)) : '';
-  const res = await fetch('/api/chart?limit=200'+qs);
+  const res = await fetch('/api/chart?limit=120'+qs);
   const d = await res.json();
   const ctx = document.getElementById('priceChart').getContext('2d');
   if(chart) chart.destroy();
+
+  let datasets = [];
+  if (d.series) {
+    const colors=['#5ea1ff','#7c6bff','#63e3a2','#ffbf66'];
+    const keys=Object.keys(d.series);
+    datasets = keys.map((k,i)=>({label:k,data:d.series[k],borderColor:colors[i%colors.length],pointRadius:0,tension:0.2}));
+  } else {
+    datasets = [{label:'Close', data:d.prices||[], borderColor:'#5ea1ff', pointRadius:0, tension:0.2}];
+  }
+
   chart = new Chart(ctx, {
     type:'line',
-    data:{ labels:d.labels, datasets:[{label:'Close', data:d.prices, borderColor:'#5ea1ff', pointRadius:0, tension:0.2}]},
+    data:{ labels:d.labels||[], datasets },
     options:{
       plugins:{legend:{labels:{color:'#dbe7ff'}}},
       scales:{ x:{ticks:{color:'#8ea0c0', maxTicksLimit:8}}, y:{ticks:{color:'#8ea0c0'}} }
@@ -372,6 +444,49 @@ document.getElementById('filterResult').addEventListener('change', applyFilters)
       options:{plugins:{legend:{display:false}}, scales:{x:{ticks:{color:'#9bb0d8'}}, y:{ticks:{color:'#9bb0d8'}}}}
     });
   }
+
+
+
+const helpBtn=document.getElementById('helpWidgetToggle');
+const helpBox=document.getElementById('helpWidget');
+const helpClose=document.getElementById('helpWidgetClose');
+const helpSend=document.getElementById('helpWidgetSend');
+const helpQ=document.getElementById('helpWidgetQ');
+const helpLog=document.getElementById('helpWidgetLog');
+
+function helpOpen(){
+  if(!helpBox||!helpBtn) return;
+  helpBox.classList.add('open');
+  helpBtn.style.display='none';
+}
+function helpHide(){
+  if(!helpBox||!helpBtn) return;
+  helpBox.classList.remove('open');
+  helpBtn.style.display='inline-block';
+}
+async function helpAsk(){
+  if(!helpQ||!helpLog) return;
+  const q=(helpQ.value||'').trim();
+  if(!q) return;
+  helpLog.textContent += `
+
+คุณ: ${q}`;
+  helpQ.value='';
+  try{
+    const res=await fetch('/api/help-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
+    const data=await res.json();
+    helpLog.textContent += `
+น้องมายด์: ${data.answer||'-'}`;
+  }catch(e){
+    helpLog.textContent += `
+น้องมายด์: ระบบช่วยเหลือมีปัญหาชั่วคราวค่ะ`;
+  }
+  helpLog.scrollTop=helpLog.scrollHeight;
+}
+if(helpBtn) helpBtn.addEventListener('click', helpOpen);
+if(helpClose) helpClose.addEventListener('click', helpHide);
+if(helpSend) helpSend.addEventListener('click', helpAsk);
+if(helpQ) helpQ.addEventListener('keydown',(e)=>{ if(e.key==='Enter') helpAsk(); });
 
 renderTabs(); initFilters(); refreshSummary(); renderChart(); refreshLeverage();
 </script>
