@@ -205,10 +205,6 @@
         <label>Cooldown minutes</label><input name="cooldown_minutes" value="{{ cfg.COOLDOWN_MINUTES }}">
         <label>Daily loss cap %</label><input name="daily_loss_cap_pct" value="{{ cfg.DAILY_LOSS_CAP_PCT }}">
         <label>Symbols (comma separated)</label><input name="symbols" value="{{ cfg.SYMBOLS|join(',') }}">
-        <label>MODE</label>
-        <select name="mode"><option value="PAPER" {% if cfg.MODE=="PAPER" %}selected{% endif %}>PAPER</option><option value="LIVE" {% if cfg.MODE=="LIVE" %}selected{% endif %}>LIVE</option></select>
-        <label>Allow Live Orders</label>
-        <select name="allow_live"><option value="false" {% if not cfg.ALLOW_LIVE_ORDERS %}selected{% endif %}>False</option><option value="true" {% if cfg.ALLOW_LIVE_ORDERS %}selected{% endif %}>True</option></select>
         <button type="submit" id="txt_save_btn">Save</button>
       </form>
       <div class="actions">

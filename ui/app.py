@@ -10,7 +10,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from bot.config_runtime import RUNTIME_CONFIG
-from bot.engine import run_engine, exchange
+from bot.engine import run_engine, exchange, apply_leverage_settings
 from bot.state import bot_state
 from bot.license import license_ok
 from bot.license_service import issue_license, list_licenses, record_payment, has_payment_event, set_license_active, delete_license, renew_license, find_licenses, list_payments_for_license
@@ -23,6 +23,10 @@ app.add_middleware(SessionMiddleware, secret_key=__import__('os').getenv('SESSIO
 BASE_DIR = Path(__file__).resolve().parents[1]
 templates = Jinja2Templates(directory=str(BASE_DIR / "ui" / "templates"))
 TRADE_CSV = BASE_DIR / "data" / "paper_trades.csv"
+
+# Force LIVE-only operation
+RUNTIME_CONFIG["MODE"] = "LIVE"
+RUNTIME_CONFIG["ALLOW_LIVE_ORDERS"] = True
 
 
 def load_trades(limit: int | None = None):
@@ -233,8 +237,8 @@ def update_config(
     leverage: int = Form(5),
     margin_mode: str = Form("cross"),
     leverage_by_symbol: str = Form(""),
-    mode: str = Form(...),
-    allow_live: str = Form("false"),
+    mode: str = Form("LIVE"),
+    allow_live: str = Form("true"),
     max_trades: int = Form(3),
     cooldown_minutes: int = Form(60),
     daily_loss_cap_pct: float = Form(3.0),
@@ -246,8 +250,6 @@ def update_config(
         return RedirectResponse("/", status_code=303)
     if margin_mode not in {"cross", "isolated"}:
         return RedirectResponse("/", status_code=303)
-    if mode not in {"PAPER", "LIVE"}:
-        return RedirectResponse("/", status_code=303)
     if max_trades < 1 or cooldown_minutes < 0 or daily_loss_cap_pct <= 0:
         return RedirectResponse("/", status_code=303)
 
@@ -257,8 +259,8 @@ def update_config(
     RUNTIME_CONFIG["RISK_PER_TRADE"] = risk
     RUNTIME_CONFIG["LEVERAGE"] = leverage
     RUNTIME_CONFIG["MARGIN_MODE"] = margin_mode
-    RUNTIME_CONFIG["MODE"] = mode
-    RUNTIME_CONFIG["ALLOW_LIVE_ORDERS"] = allow_live.lower() == "true"
+    RUNTIME_CONFIG["MODE"] = "LIVE"
+    RUNTIME_CONFIG["ALLOW_LIVE_ORDERS"] = True
     RUNTIME_CONFIG["MAX_TRADES_PER_DAY"] = max_trades
     RUNTIME_CONFIG["COOLDOWN_MINUTES"] = cooldown_minutes
     RUNTIME_CONFIG["DAILY_LOSS_CAP_PCT"] = daily_loss_cap_pct
@@ -298,6 +300,13 @@ def update_config(
         RUNTIME_CONFIG["LEVERAGE_BY_SYMBOL"] = {
             k: v for k, v in RUNTIME_CONFIG["LEVERAGE_BY_SYMBOL"].items() if k in valid_set
         }
+
+    # apply leverage immediately when bot is already running in LIVE mode
+    try:
+        if bot_state.get("running") and RUNTIME_CONFIG.get("MODE") == "LIVE" and RUNTIME_CONFIG.get("ALLOW_LIVE_ORDERS"):
+            apply_leverage_settings()
+    except Exception:
+        pass
 
     return RedirectResponse("/", status_code=303)
 
