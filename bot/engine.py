@@ -197,17 +197,80 @@ def touch_cooldown():
     bot_state["cooldown_until"] = datetime.utcnow() + timedelta(minutes=int(RUNTIME_CONFIG.get("COOLDOWN_MINUTES", 60)))
 
 
+
+
+def normalize_order_amount(symbol: str, amount: float):
+    """Clamp + precision-normalize order amount to exchange market limits."""
+    try:
+        exchange.load_markets()
+    except Exception:
+        pass
+
+    market = exchange.market(symbol)
+    limits = (market.get('limits') or {}).get('amount') or {}
+    min_amt = limits.get('min')
+    max_amt = limits.get('max')
+
+    amt = float(amount)
+    changed = False
+
+    if max_amt is not None and amt > float(max_amt):
+        amt = float(max_amt)
+        changed = True
+
+    if min_amt is not None and amt < float(min_amt):
+        return None, f'below_min_qty:{amt}<{min_amt}'
+
+    try:
+        amt = float(exchange.amount_to_precision(symbol, amt))
+    except Exception:
+        pass
+
+    if amt <= 0:
+        return None, 'non_positive_qty'
+
+    if min_amt is not None and amt < float(min_amt):
+        amt = float(min_amt)
+        changed = True
+        try:
+            amt = float(exchange.amount_to_precision(symbol, amt))
+        except Exception:
+            pass
+
+    return amt, ('clamped' if changed else '')
+
+
 def send_live_order(symbol: str, side: str, trade):
     if RUNTIME_CONFIG["MODE"] != "LIVE" or not RUNTIME_CONFIG["ALLOW_LIVE_ORDERS"]:
         return "blocked"
     order_side = "buy" if side == "LONG" else "sell"
     close_side = "sell" if side == "LONG" else "buy"
-    size = trade["size"]
-    half = round(size / 2, 3)
+
+    raw_size = float(trade["size"])
+    size, reason = normalize_order_amount(symbol, raw_size)
+    if size is None:
+        notify(f"⚠️ order blocked {symbol}: invalid qty ({reason})")
+        return "blocked"
+    if reason:
+        notify(f"⚠️ qty adjusted {symbol}: {raw_size} -> {size}")
+
     exchange.create_order(symbol, "MARKET", order_side, size)
     exchange.create_order(symbol, "STOP_MARKET", close_side, size, params={"stopPrice": trade["sl"], "reduceOnly": True})
-    exchange.create_order(symbol, "TAKE_PROFIT_MARKET", close_side, half, params={"stopPrice": trade["tp1"], "reduceOnly": True})
-    exchange.create_order(symbol, "TAKE_PROFIT_MARKET", close_side, size - half, params={"stopPrice": trade["tp2"], "reduceOnly": True})
+
+    # TP split with safe fallback to single TP if split amounts are invalid
+    half_target = size / 2
+    half, _ = normalize_order_amount(symbol, half_target)
+    rest = None
+    if half is not None:
+        rest, _ = normalize_order_amount(symbol, max(size - half, 0))
+
+    if half is not None and rest is not None and rest > 0:
+        exchange.create_order(symbol, "TAKE_PROFIT_MARKET", close_side, half, params={"stopPrice": trade["tp1"], "reduceOnly": True})
+        exchange.create_order(symbol, "TAKE_PROFIT_MARKET", close_side, rest, params={"stopPrice": trade["tp2"], "reduceOnly": True})
+    else:
+        notify(f"⚠️ TP split fallback {symbol}: using single TP order")
+        exchange.create_order(symbol, "TAKE_PROFIT_MARKET", close_side, size, params={"stopPrice": trade["tp1"], "reduceOnly": True})
+
     return "live_sent"
 
 
