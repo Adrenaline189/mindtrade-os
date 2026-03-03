@@ -15,6 +15,7 @@ from bot.state import bot_state
 from bot.license import license_ok
 from bot.license_service import issue_license, list_licenses, record_payment, has_payment_event, set_license_active, delete_license, renew_license, find_licenses, list_payments_for_license
 from bot.auth_service import create_user, verify_user
+from bot.runtime_store import load_runtime_config, save_runtime_config
 
 load_dotenv()
 
@@ -23,6 +24,9 @@ app.add_middleware(SessionMiddleware, secret_key=__import__('os').getenv('SESSIO
 BASE_DIR = Path(__file__).resolve().parents[1]
 templates = Jinja2Templates(directory=str(BASE_DIR / "ui" / "templates"))
 TRADE_CSV = BASE_DIR / "data" / "paper_trades.csv"
+
+# Load persisted runtime config first
+load_runtime_config()
 
 # Force LIVE-only operation
 RUNTIME_CONFIG["MODE"] = "LIVE"
@@ -300,6 +304,12 @@ def update_config(
         RUNTIME_CONFIG["LEVERAGE_BY_SYMBOL"] = {
             k: v for k, v in RUNTIME_CONFIG["LEVERAGE_BY_SYMBOL"].items() if k in valid_set
         }
+
+    # persist runtime settings
+    try:
+        save_runtime_config()
+    except Exception:
+        pass
 
     # apply leverage immediately when bot is already running in LIVE mode
     try:
