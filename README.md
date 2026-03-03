@@ -50,13 +50,20 @@ Architecture notes and limitations:
 - `docs/multi-tenant-phase1.md`
 - `docs/multi-tenant-phase2.md`
 
-### Worker admin APIs (Phase 2)
+### Worker admin APIs + UI (Phase 2)
 
 ```bash
 curl http://127.0.0.1:8000/admin/workers
 curl -X POST -F "tenant_id=default" http://127.0.0.1:8000/admin/workers/start
 curl -X POST -F "tenant_id=default" http://127.0.0.1:8000/admin/workers/stop
 ```
+
+Admin UI:
+- `/admin/workers/ui`
+
+License enforcement (Phase 2 hardening):
+- Worker start is denied for suspended/expired tenant license.
+- Running worker re-checks license every ~30s and auto-stops on invalid license.
 
 Smoke check:
 
@@ -70,6 +77,20 @@ Smoke check:
 ./scripts/start_bot.sh
 ./scripts/status_bot.sh
 ./scripts/stop_bot.sh
+```
+
+## Ops scripts (production)
+
+Backup tenant+license data with retention:
+
+```bash
+KEEP_DAYS=14 ./scripts/backup_tenant_data.sh
+```
+
+Monitor service + health + worker state (Telegram alert on failure):
+
+```bash
+SERVICE_NAME=mindtrade.service ./scripts/monitor_service.sh
 ```
 
 ## Telegram alerts (optional)
