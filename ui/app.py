@@ -66,10 +66,10 @@ def load_trades(tenant_id: str, limit: int | None = None):
 
 
 
-def fetch_open_positions():
+def fetch_open_positions(symbols: list[str] | None = None):
     out = []
     try:
-        positions = exchange.fetch_positions(RUNTIME_CONFIG.get('SYMBOLS', []))
+        positions = exchange.fetch_positions(symbols or RUNTIME_CONFIG.get('SYMBOLS', []))
         for p in positions:
             contracts = float(p.get('contracts') or 0)
             if contracts == 0:
@@ -121,6 +121,55 @@ def trade_summary(trades):
         "blocked": counts.get("BLOCKED", 0),
         "skips": counts.get("SKIP", 0),
         "by_symbol": dict(by_symbol),
+    }
+
+
+def tenant_metrics(tenant_id: str, symbol: str | None = None):
+    with tenant_scope(tenant_id):
+        load_runtime_config(tenant_id)
+        trades = load_trades(tenant_id=tenant_id, limit=5000)
+        if symbol:
+            trades = [t for t in trades if t.get('symbol') == symbol]
+        blocked_reasons = Counter((t.get('note') or '').split(':')[0] for t in trades if t.get('result') == 'BLOCKED')
+        positions = fetch_open_positions(symbols=RUNTIME_CONFIG.get('SYMBOLS', []))
+        exposure = sum(abs(float(p.get('unrealizedPnl') or 0)) for p in positions)
+
+    r_values = []
+    for t in trades:
+        note = str(t.get('note', ''))
+        if note.startswith('r='):
+            try:
+                r_values.append(float(note[2:]))
+            except Exception:
+                pass
+
+    total_r = sum(r_values) if r_values else 0.0
+    avg_r = (total_r / len(r_values)) if r_values else 0.0
+    eq = 0.0
+    peak = 0.0
+    max_dd = 0.0
+    for r in r_values:
+        eq += r
+        if eq > peak:
+            peak = eq
+        dd = peak - eq
+        if dd > max_dd:
+            max_dd = dd
+
+    return {
+        'summary': trade_summary(trades),
+        'running': tenant_running(tenant_id),
+        'mode': RUNTIME_CONFIG['MODE'],
+        'symbol': symbol or 'ALL',
+        'tenant_id': tenant_id,
+        'blocked_reasons': dict(blocked_reasons),
+        'open_positions_count': len(positions),
+        'open_positions': positions,
+        'exposure_abs_upnl': round(exposure, 4),
+        'realized_trades': len(r_values),
+        'total_r': round(total_r, 4),
+        'avg_r': round(avg_r, 4),
+        'max_dd_r': round(max_dd, 4),
     }
 
 
@@ -197,8 +246,8 @@ def admin_workers_start(tenant_id: str = Form(...)):
 
 
 @app.post('/admin/workers/stop')
-def admin_workers_stop(tenant_id: str = Form(...)):
-    stopped = engine_manager.stop(tenant_id)
+def admin_workers_stop(tenant_id: str = Form(...), timeout_sec: float = Form(10.0)):
+    stopped = engine_manager.stop(tenant_id, timeout_sec=timeout_sec)
     return JSONResponse({'ok': True, 'stopped': bool(stopped), 'status': engine_manager.status(tenant_id)})
 
 
@@ -210,15 +259,34 @@ def admin_worker_status(tenant_id: str):
 @app.get('/api/summary')
 def api_summary(request: Request, symbol: str | None = None):
     tenant_id = current_tenant_id(request)
-    with tenant_scope(tenant_id):
-        load_runtime_config(tenant_id)
-        trades = load_trades(tenant_id=tenant_id, limit=500)
-        if symbol:
-            trades = [t for t in trades if t.get('symbol') == symbol]
-        blocked_reasons = Counter((t.get('note') or '').split(':')[0] for t in trades if t.get('result')=='BLOCKED')
-        positions = fetch_open_positions()
-        exposure = sum(abs(float(p.get('unrealizedPnl') or 0)) for p in positions)
-        return JSONResponse({'summary': trade_summary(trades), 'running': tenant_running(tenant_id), 'mode': RUNTIME_CONFIG['MODE'], 'symbol': symbol or 'ALL', 'tenant_id': tenant_id, 'blocked_reasons': dict(blocked_reasons), 'open_positions_count': len(positions), 'open_positions': positions, 'exposure_abs_upnl': round(exposure,4)})
+    data = tenant_metrics(tenant_id=tenant_id, symbol=symbol)
+    return JSONResponse({
+        'summary': data['summary'],
+        'running': data['running'],
+        'mode': data['mode'],
+        'symbol': data['symbol'],
+        'tenant_id': data['tenant_id'],
+        'blocked_reasons': data['blocked_reasons'],
+        'open_positions_count': data['open_positions_count'],
+        'open_positions': data['open_positions'],
+        'exposure_abs_upnl': data['exposure_abs_upnl'],
+    })
+
+
+@app.get('/api/tenant/{tenant_id}/summary')
+def api_tenant_summary(tenant_id: str, symbol: str | None = None):
+    data = tenant_metrics(tenant_id=tenant_id, symbol=symbol)
+    return JSONResponse({
+        'summary': data['summary'],
+        'running': data['running'],
+        'mode': data['mode'],
+        'symbol': data['symbol'],
+        'tenant_id': data['tenant_id'],
+        'blocked_reasons': data['blocked_reasons'],
+        'open_positions_count': data['open_positions_count'],
+        'open_positions': data['open_positions'],
+        'exposure_abs_upnl': data['exposure_abs_upnl'],
+    })
 
 
 @app.get('/api/events')
@@ -273,36 +341,52 @@ def api_chart(request: Request, limit: int = 200, symbol: str | None = None):
 @app.get('/api/performance')
 def api_performance(request: Request):
     tenant_id = current_tenant_id(request)
-    trades = load_trades(tenant_id=tenant_id, limit=5000)
-    r_values = []
-    for t in trades:
-        note = str(t.get('note',''))
-        if note.startswith('r='):
-            try:
-                r_values.append(float(note[2:]))
-            except Exception:
-                pass
-
-    total_r = sum(r_values) if r_values else 0.0
-    avg_r = (total_r / len(r_values)) if r_values else 0.0
-
-    # max drawdown in R space
-    eq = 0.0
-    peak = 0.0
-    max_dd = 0.0
-    for r in r_values:
-        eq += r
-        if eq > peak:
-            peak = eq
-        dd = peak - eq
-        if dd > max_dd:
-            max_dd = dd
-
+    data = tenant_metrics(tenant_id=tenant_id)
     return JSONResponse({
-        'realized_trades': len(r_values),
-        'total_r': round(total_r, 4),
-        'avg_r': round(avg_r, 4),
-        'max_dd_r': round(max_dd, 4),
+        'tenant_id': data['tenant_id'],
+        'realized_trades': data['realized_trades'],
+        'total_r': data['total_r'],
+        'avg_r': data['avg_r'],
+        'max_dd_r': data['max_dd_r'],
+    })
+
+
+@app.get('/api/tenant/{tenant_id}/performance')
+def api_tenant_performance(tenant_id: str):
+    data = tenant_metrics(tenant_id=tenant_id)
+    return JSONResponse({
+        'tenant_id': data['tenant_id'],
+        'realized_trades': data['realized_trades'],
+        'total_r': data['total_r'],
+        'avg_r': data['avg_r'],
+        'max_dd_r': data['max_dd_r'],
+    })
+
+
+@app.get('/api/pnl')
+def api_pnl(request: Request):
+    tenant_id = current_tenant_id(request)
+    data = tenant_metrics(tenant_id=tenant_id)
+    return JSONResponse({
+        'tenant_id': data['tenant_id'],
+        'total_r': data['total_r'],
+        'avg_r': data['avg_r'],
+        'max_dd_r': data['max_dd_r'],
+        'realized_trades': data['realized_trades'],
+        'exposure_abs_upnl': data['exposure_abs_upnl'],
+    })
+
+
+@app.get('/api/tenant/{tenant_id}/pnl')
+def api_tenant_pnl(tenant_id: str):
+    data = tenant_metrics(tenant_id=tenant_id)
+    return JSONResponse({
+        'tenant_id': data['tenant_id'],
+        'total_r': data['total_r'],
+        'avg_r': data['avg_r'],
+        'max_dd_r': data['max_dd_r'],
+        'realized_trades': data['realized_trades'],
+        'exposure_abs_upnl': data['exposure_abs_upnl'],
     })
 
 @app.post("/start")

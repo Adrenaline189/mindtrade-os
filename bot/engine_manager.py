@@ -25,12 +25,12 @@ class EngineManager:
             self._active_tenant_id = (tenant_id or self._active_tenant_id).strip() or default_tenant_id()
             return tenant_worker_manager.start(self._active_tenant_id)
 
-    def stop(self, tenant_id: str | None = None):
+    def stop(self, tenant_id: str | None = None, timeout_sec: float = 10.0):
         with self._lock:
             tid = (tenant_id or self._active_tenant_id).strip() if tenant_id is not None else None
         if tid:
-            return tenant_worker_manager.stop(tid)
-        return tenant_worker_manager.stop_all() > 0
+            return tenant_worker_manager.stop(tid, timeout_sec=timeout_sec)
+        return tenant_worker_manager.stop_all(timeout_sec=timeout_sec) > 0
 
     def status(self, tenant_id: str | None = None) -> dict:
         tid = tenant_id or self._active_tenant_id

@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 
 from bot.config_runtime import RUNTIME_CONFIG
 from bot.paths import get_tenant_paths
@@ -16,16 +17,25 @@ def save_runtime_config(tenant_id: str | None = None) -> None:
     runtime_file.write_text(json.dumps(RUNTIME_CONFIG, indent=2, ensure_ascii=False))
 
 
-def load_runtime_config(tenant_id: str | None = None) -> None:
+def read_runtime_config_for_tenant(tenant_id: str | None = None) -> dict:
     runtime_file = _runtime_file(tenant_id)
+    cfg = deepcopy(RUNTIME_CONFIG)
     if not runtime_file.exists():
-        return
+        return cfg
     try:
         data = json.loads(runtime_file.read_text())
     except Exception:
-        return
+        return cfg
     if not isinstance(data, dict):
-        return
+        return cfg
+    for k in list(cfg.keys()):
+        if k in data:
+            cfg[k] = data[k]
+    return cfg
+
+
+def load_runtime_config(tenant_id: str | None = None) -> None:
+    data = read_runtime_config_for_tenant(tenant_id)
     for k in list(RUNTIME_CONFIG.keys()):
         if k in data:
             RUNTIME_CONFIG[k] = data[k]

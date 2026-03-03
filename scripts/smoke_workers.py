@@ -10,6 +10,12 @@ from bot.engine_manager import engine_manager
 
 
 def main():
+    try:
+        import ccxt  # noqa: F401
+    except Exception:
+        print({"skipped": True, "reason": "ccxt_not_installed"})
+        return
+
     t1 = "default"
     t2 = "tenant_smoke"
 
