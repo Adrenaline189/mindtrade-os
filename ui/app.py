@@ -10,13 +10,14 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from bot.config_runtime import RUNTIME_CONFIG
-from bot.engine import exchange, apply_leverage_settings
+from bot.engine import apply_leverage_settings
 from bot.engine_manager import engine_manager
 from bot.license import license_ok
 from bot.license_service import issue_license, list_licenses, record_payment, has_payment_event, set_license_active, delete_license, renew_license, find_licenses, list_payments_for_license
 from bot.auth_service import create_user, verify_user, resolve_user_tenant
 from bot.paths import get_tenant_paths
 from bot.runtime_store import load_runtime_config, save_runtime_config
+from bot.tenant_services import tenant_services
 from bot.tenant_context import default_tenant_id, tenant_scope
 from bot.tenant_store import get_tenant_for_user, list_tenants
 from bot.user_api_store import set_user_api, has_user_api, get_user_api
@@ -66,24 +67,27 @@ def load_trades(tenant_id: str, limit: int | None = None):
 
 
 
-def fetch_open_positions(symbols: list[str] | None = None):
+def fetch_open_positions(tenant_id: str, symbols: list[str] | None = None):
     out = []
-    try:
-        positions = exchange.fetch_positions(symbols or RUNTIME_CONFIG.get('SYMBOLS', []))
-        for p in positions:
-            contracts = float(p.get('contracts') or 0)
-            if contracts == 0:
-                continue
-            out.append({
-                'symbol': p.get('symbol'),
-                'side': p.get('side'),
-                'contracts': contracts,
-                'entryPrice': p.get('entryPrice'),
-                'markPrice': p.get('markPrice'),
-                'unrealizedPnl': p.get('unrealizedPnl'),
-            })
-    except Exception:
-        pass
+    cfg = tenant_services.get_runtime_config(tenant_id)
+    handle = tenant_services.exchange_for_tenant(tenant_id)
+    with handle.lock:
+        try:
+            positions = handle.exchange.fetch_positions(symbols or cfg.get('SYMBOLS', []))
+            for p in positions:
+                contracts = float(p.get('contracts') or 0)
+                if contracts == 0:
+                    continue
+                out.append({
+                    'symbol': p.get('symbol'),
+                    'side': p.get('side'),
+                    'contracts': contracts,
+                    'entryPrice': p.get('entryPrice'),
+                    'markPrice': p.get('markPrice'),
+                    'unrealizedPnl': p.get('unrealizedPnl'),
+                })
+        except Exception:
+            pass
     return out
 
 def trade_summary(trades):
@@ -125,14 +129,13 @@ def trade_summary(trades):
 
 
 def tenant_metrics(tenant_id: str, symbol: str | None = None):
-    with tenant_scope(tenant_id):
-        load_runtime_config(tenant_id)
-        trades = load_trades(tenant_id=tenant_id, limit=5000)
-        if symbol:
-            trades = [t for t in trades if t.get('symbol') == symbol]
-        blocked_reasons = Counter((t.get('note') or '').split(':')[0] for t in trades if t.get('result') == 'BLOCKED')
-        positions = fetch_open_positions(symbols=RUNTIME_CONFIG.get('SYMBOLS', []))
-        exposure = sum(abs(float(p.get('unrealizedPnl') or 0)) for p in positions)
+    cfg = tenant_services.get_runtime_config(tenant_id)
+    trades = load_trades(tenant_id=tenant_id, limit=5000)
+    if symbol:
+        trades = [t for t in trades if t.get('symbol') == symbol]
+    blocked_reasons = Counter((t.get('note') or '').split(':')[0] for t in trades if t.get('result') == 'BLOCKED')
+    positions = fetch_open_positions(tenant_id=tenant_id, symbols=cfg.get('SYMBOLS', []))
+    exposure = sum(abs(float(p.get('unrealizedPnl') or 0)) for p in positions)
 
     r_values = []
     for t in trades:
@@ -159,7 +162,7 @@ def tenant_metrics(tenant_id: str, symbol: str | None = None):
     return {
         'summary': trade_summary(trades),
         'running': tenant_running(tenant_id),
-        'mode': RUNTIME_CONFIG['MODE'],
+        'mode': cfg['MODE'],
         'symbol': symbol or 'ALL',
         'tenant_id': tenant_id,
         'blocked_reasons': dict(blocked_reasons),
@@ -204,7 +207,7 @@ def health():
         'running': any(w.get('running') for w in workers),
         'active_tenant_id': engine_manager.active_tenant_id,
         'workers': workers,
-        'mode': RUNTIME_CONFIG['MODE'],
+        'mode': cfg['MODE'],
         'allow_live': RUNTIME_CONFIG['ALLOW_LIVE_ORDERS'],
         'panic_stop': RUNTIME_CONFIG['PANIC_STOP'],
         'symbols': RUNTIME_CONFIG.get('SYMBOLS', []),
@@ -299,43 +302,44 @@ def api_events(request: Request, limit: int = 200):
 @app.get('/api/chart')
 def api_chart(request: Request, limit: int = 200, symbol: str | None = None):
     tenant_id = current_tenant_id(request)
-    with tenant_scope(tenant_id):
-        load_runtime_config(tenant_id)
-        symbols = [symbol] if symbol else list(RUNTIME_CONFIG.get('SYMBOLS', []))
-        symbols = symbols[:3] if symbols else ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
+    cfg = tenant_services.get_runtime_config(tenant_id)
+    symbols = [symbol] if symbol else list(cfg.get('SYMBOLS', []))
+    symbols = symbols[:3] if symbols else ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
 
-        try:
-            exchange.load_markets()
+    try:
+        handle = tenant_services.exchange_for_tenant(tenant_id)
+        with handle.lock:
+            handle.exchange.load_markets()
             raw = {}
             ts_union = set()
             for sym in symbols:
-                ohlcv = exchange.fetch_ohlcv(sym, timeframe='5m', limit=limit)
+                ohlcv = handle.exchange.fetch_ohlcv(sym, timeframe='5m', limit=limit)
                 raw[sym] = ohlcv
                 for row in ohlcv:
                     ts_union.add(int(row[0]))
 
-            ts_sorted = sorted(ts_union)
-            labels = [__import__('datetime').datetime.utcfromtimestamp(t/1000).strftime('%H:%M') for t in ts_sorted]
+        ts_sorted = sorted(ts_union)
+        labels = [__import__('datetime').datetime.utcfromtimestamp(t/1000).strftime('%H:%M') for t in ts_sorted]
 
-            series = {}
-            for sym in symbols:
-                idx = {int(r[0]): float(r[4]) for r in raw.get(sym, [])}
-                series[sym] = [idx.get(t) for t in ts_sorted]
+        series = {}
+        for sym in symbols:
+            idx = {int(r[0]): float(r[4]) for r in raw.get(sym, [])}
+            series[sym] = [idx.get(t) for t in ts_sorted]
 
-            return JSONResponse({'labels': labels, 'series': series, 'source': 'binance_ohlcv'})
-        except Exception:
-            trades = load_trades(tenant_id=tenant_id, limit=limit)
-            if symbol:
-                trades = [t for t in trades if t.get('symbol') == symbol]
-            labels, prices, markers = [], [], []
-            for t in trades:
-                labels.append(t.get('time'))
-                try:
-                    prices.append(float(t.get('close') or 0))
-                except Exception:
-                    prices.append(None)
-                markers.append(t.get('result'))
-            return JSONResponse({'labels': labels, 'prices': prices, 'markers': markers, 'source': 'local_trades'})
+        return JSONResponse({'labels': labels, 'series': series, 'source': 'binance_ohlcv'})
+    except Exception:
+        trades = load_trades(tenant_id=tenant_id, limit=limit)
+        if symbol:
+            trades = [t for t in trades if t.get('symbol') == symbol]
+        labels, prices, markers = [], [], []
+        for t in trades:
+            labels.append(t.get('time'))
+            try:
+                prices.append(float(t.get('close') or 0))
+            except Exception:
+                prices.append(None)
+            markers.append(t.get('result'))
+        return JSONResponse({'labels': labels, 'prices': prices, 'markers': markers, 'source': 'local_trades'})
 
 
 @app.get('/api/performance')
@@ -551,11 +555,13 @@ def webhook_test():
 @app.get('/api/connection')
 def api_connection(request: Request):
     tenant_id = current_tenant_id(request)
-    load_runtime_config(tenant_id)
+    cfg = tenant_services.get_runtime_config(tenant_id)
     ok = True
     err = ''
     try:
-        exchange.fetch_ticker(RUNTIME_CONFIG.get('SYMBOLS', ['BTC/USDT'])[0])
+        handle = tenant_services.exchange_for_tenant(tenant_id)
+        with handle.lock:
+            handle.exchange.fetch_ticker(cfg.get('SYMBOLS', ['BTC/USDT'])[0])
     except Exception as e:
         ok = False
         err = str(e)
@@ -563,18 +569,19 @@ def api_connection(request: Request):
 
 
 @app.get('/api/open-positions')
-def api_open_positions():
-    return JSONResponse({'positions': fetch_open_positions()})
+def api_open_positions(request: Request):
+    tenant_id = current_tenant_id(request)
+    return JSONResponse({'positions': fetch_open_positions(tenant_id=tenant_id)})
 
 
 @app.get('/api/leverage')
 def api_leverage(request: Request):
     tenant_id = current_tenant_id(request)
-    load_runtime_config(tenant_id)
-    symbols = RUNTIME_CONFIG.get('SYMBOLS', [])
-    default_lev = int(RUNTIME_CONFIG.get('LEVERAGE', 5))
-    margin_mode = str(RUNTIME_CONFIG.get('MARGIN_MODE', 'cross'))
-    lev_map = RUNTIME_CONFIG.get('LEVERAGE_BY_SYMBOL', {}) or {}
+    cfg = tenant_services.get_runtime_config(tenant_id)
+    symbols = cfg.get('SYMBOLS', [])
+    default_lev = int(cfg.get('LEVERAGE', 5))
+    margin_mode = str(cfg.get('MARGIN_MODE', 'cross'))
+    lev_map = cfg.get('LEVERAGE_BY_SYMBOL', {}) or {}
 
     rows = []
     for sym in symbols:
@@ -809,9 +816,12 @@ def api_help_chat(payload: dict):
 
 
 @app.get('/api/futures-balance')
-def api_futures_balance():
+def api_futures_balance(request: Request):
     try:
-        bal = exchange.fetch_balance()
+        tenant_id = current_tenant_id(request)
+        handle = tenant_services.exchange_for_tenant(tenant_id)
+        with handle.lock:
+            bal = handle.exchange.fetch_balance()
         usdt = bal.get('USDT', {}) if isinstance(bal, dict) else {}
         total = float(usdt.get('total') or 0)
         free = float(usdt.get('free') or 0)

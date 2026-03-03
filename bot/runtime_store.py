@@ -1,7 +1,7 @@
 import json
 from copy import deepcopy
 
-from bot.config_runtime import RUNTIME_CONFIG
+from bot.config_runtime import DEFAULT_RUNTIME_CONFIG, RUNTIME_CONFIG
 from bot.paths import get_tenant_paths
 from bot.tenant_context import get_current_tenant
 
@@ -19,7 +19,7 @@ def save_runtime_config(tenant_id: str | None = None) -> None:
 
 def read_runtime_config_for_tenant(tenant_id: str | None = None) -> dict:
     runtime_file = _runtime_file(tenant_id)
-    cfg = deepcopy(RUNTIME_CONFIG)
+    cfg = deepcopy(DEFAULT_RUNTIME_CONFIG)
     if not runtime_file.exists():
         return cfg
     try:

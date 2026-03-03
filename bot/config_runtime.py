@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 # Runtime config ที่แก้ได้จาก UI
 RUNTIME_CONFIG = {
     "RSI_MIN": 40,
@@ -44,3 +46,7 @@ RUNTIME_CONFIG = {
     # 🔴 PANIC SWITCH
     "PANIC_STOP": False
 }
+
+
+# Immutable baseline used for tenant-scoped reads (avoid global mutable bleed)
+DEFAULT_RUNTIME_CONFIG = deepcopy(RUNTIME_CONFIG)
