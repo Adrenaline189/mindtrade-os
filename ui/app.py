@@ -22,6 +22,19 @@ from bot.tenant_context import default_tenant_id, tenant_scope
 from bot.tenant_store import get_tenant_for_user, list_tenants
 from bot.user_api_store import set_user_api, has_user_api, get_user_api
 
+
+def _license_reason_message(reason: str) -> str:
+    mapping = {
+        'valid': 'license valid',
+        'default_tenant': 'default tenant allowed without mapped email',
+        'tenant_email_not_found': 'tenant has no mapped owner email',
+        'license_not_found': 'no license found for tenant owner',
+        'suspended': 'license is suspended by admin',
+        'expired': 'license is expired',
+        'invalid_expiry': 'license expiry format invalid',
+    }
+    return mapping.get((reason or '').strip(), reason or 'unknown')
+
 load_dotenv()
 
 app = FastAPI(title="MindTrade OS")
@@ -223,20 +236,43 @@ def admin_workers():
 
 
 @app.get('/admin/workers/ui')
+@app.get('/admin/control')
 def admin_workers_ui(request: Request):
     tenants = list_tenants()
     statuses = {w.get('tenant_id'): w for w in engine_manager.list_status()}
+    licenses_by_email = {(x.get('email') or '').strip().lower(): x for x in list_licenses(5000)}
     rows = []
     for t in tenants:
         tid = t.get('tenant_id')
         st = statuses.get(tid) or engine_manager.status(tid)
+        emails = t.get('emails') or []
+        primary_email = (emails[0] if emails else '').strip().lower()
+        lic = licenses_by_email.get(primary_email)
+
+        plan = (lic or {}).get('plan', '-')
+        expires_at = (lic or {}).get('expires_at', '-')
+        license_token = (lic or {}).get('license_token', '')
+        api_status = False
+        if primary_email:
+            try:
+                api_status = bool(has_user_api(primary_email, tenant_id=tid))
+            except Exception:
+                api_status = False
+
         rows.append({
             'tenant_id': tid,
             'name': t.get('name') or tid,
-            'emails': t.get('emails') or [],
+            'emails': emails,
+            'primary_email': primary_email,
+            'plan': plan,
+            'expires_at': expires_at,
+            'license_token': license_token,
+            'api_ok': api_status,
             'running': st.get('running', False),
             'license_ok': st.get('license_ok', True),
             'license_reason': st.get('license_reason', ''),
+            'license_reason_message': _license_reason_message(st.get('license_reason', '')),
+            'enforcement_reason': st.get('enforcement_reason', ''),
             'stop_timed_out': st.get('stop_timed_out', False),
             'last_stop_latency_sec': st.get('last_stop_latency_sec', 0.0),
             'last_error': st.get('last_error', ''),
@@ -252,13 +288,24 @@ def admin_workers_ui(request: Request):
 def admin_workers_start(tenant_id: str = Form(...)):
     started = engine_manager.start(tenant_id)
     status = engine_manager.status(tenant_id)
-    return JSONResponse({'ok': True, 'started': started, 'status': status})
+    reason = status.get('license_reason', '')
+    if started:
+        msg = 'worker started'
+        if status.get('already_running'):
+            msg = 'worker already running'
+    else:
+        msg = f"worker blocked by license gate: {_license_reason_message(reason)}"
+    return JSONResponse({'ok': True, 'started': started, 'message': msg, 'status': status})
 
 
 @app.post('/admin/workers/stop')
 def admin_workers_stop(tenant_id: str = Form(...), timeout_sec: float = Form(15.0)):
     stopped = engine_manager.stop(tenant_id, timeout_sec=timeout_sec)
-    return JSONResponse({'ok': True, 'stopped': bool(stopped), 'status': engine_manager.status(tenant_id)})
+    status = engine_manager.status(tenant_id)
+    msg = 'worker stop requested' if stopped else 'worker not running'
+    if status.get('stop_timed_out'):
+        msg = f"worker stop timeout after {status.get('stop_timeout_sec', timeout_sec)}s"
+    return JSONResponse({'ok': True, 'stopped': bool(stopped), 'message': msg, 'status': status})
 
 
 @app.get('/admin/workers/{tenant_id}')
@@ -602,15 +649,15 @@ def api_leverage(request: Request):
 
 
 @app.post('/admin/licenses/suspend')
-def admin_suspend_license(token: str = Form(...)):
+def admin_suspend_license(token: str = Form(...), next: str = Form('/admin/licenses')):
     set_license_active(token, False)
-    return RedirectResponse('/admin/licenses', status_code=303)
+    return RedirectResponse(next or '/admin/licenses', status_code=303)
 
 
 @app.post('/admin/licenses/activate')
-def admin_activate_license(token: str = Form(...)):
+def admin_activate_license(token: str = Form(...), next: str = Form('/admin/licenses')):
     set_license_active(token, True)
-    return RedirectResponse('/admin/licenses', status_code=303)
+    return RedirectResponse(next or '/admin/licenses', status_code=303)
 
 
 @app.post('/admin/licenses/delete')
@@ -620,9 +667,9 @@ def admin_delete_license(token: str = Form(...)):
 
 
 @app.post('/admin/licenses/renew')
-def admin_renew_license(token: str = Form(...), days: int = Form(30)):
+def admin_renew_license(token: str = Form(...), days: int = Form(30), next: str = Form('/admin/licenses')):
     renew_license(token, days)
-    return RedirectResponse('/admin/licenses', status_code=303)
+    return RedirectResponse(next or '/admin/licenses', status_code=303)
 
 
 @app.post('/admin/licenses/send-token')

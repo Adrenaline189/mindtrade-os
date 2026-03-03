@@ -2,44 +2,49 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Admin - Workers</title>
+  <title>Admin - Tenant Control</title>
   <style>
     body{font-family:system-ui;margin:24px}
     table{border-collapse:collapse;width:100%}
-    th,td{border:1px solid #ddd;padding:8px;text-align:left}
+    th,td{border:1px solid #ddd;padding:8px;text-align:left;vertical-align:top}
     .ok{color:#0a7f2e;font-weight:600}
     .bad{color:#b42318;font-weight:600}
+    .mono{font-family:ui-monospace,Menlo,monospace}
     form{display:inline}
+    input[type='number']{width:72px}
   </style>
 </head>
 <body>
-  <h2>Admin Worker Control</h2>
-  <p><a href="/admin/licenses">← Licenses</a> · <a href="/admin/workers">Workers API (JSON)</a></p>
+  <h2>Admin One-Page Tenant Control</h2>
+  <p><a href="/admin/licenses">Licenses</a> · <a href="/admin/workers">Workers API</a></p>
   <table>
     <thead>
       <tr>
-        <th>Tenant</th>
-        <th>Owner Email(s)</th>
+        <th>Tenant / Owner</th>
+        <th>Plan / Expiry</th>
+        <th>API</th>
         <th>Worker</th>
-        <th>License</th>
-        <th>Health</th>
-        <th>Action</th>
+        <th>License Gate</th>
+        <th>Actions</th>
       </tr>
     </thead>
     <tbody>
       {% for r in rows %}
       <tr>
-        <td><code>{{ r.tenant_id }}</code><br><small>{{ r.name }}</small></td>
-        <td>{{ ', '.join(r.emails) if r.emails else '-' }}</td>
-        <td>{% if r.running %}<span class="ok">running</span>{% else %}<span class="bad">stopped</span>{% endif %}</td>
-        <td>{% if r.license_ok %}<span class="ok">ok</span>{% else %}<span class="bad">{{ r.license_reason }}</span>{% endif %}</td>
+        <td><div class="mono">{{ r.tenant_id }}</div><small>{{ r.name }}</small><br><small>{{ r.primary_email or '-' }}</small></td>
+        <td><div>{{ r.plan }}</div><div><small>{{ r.expires_at }}</small></div></td>
+        <td>{% if r.api_ok %}<span class="ok">configured</span>{% else %}<span class="bad">missing</span>{% endif %}</td>
         <td>
-          <div>ticks: {{ r.ticks }}</div>
-          <div>tick age: {{ '%.1fs'|format(r.tick_age_sec) if r.tick_age_sec is not none else '-' }}</div>
-          <div>stop timeout: {% if r.stop_timed_out %}<span class="bad">yes</span>{% else %}<span class="ok">no</span>{% endif %}</div>
-          <div>stop latency: {{ '%.3fs'|format(r.last_stop_latency_sec or 0) }}</div>
-          <div>crashed: {% if r.crashed %}<span class="bad">yes</span>{% else %}<span class="ok">no</span>{% endif %}</div>
-          <div>last error: <small>{{ r.last_error or '-' }}</small></div>
+          <div>{% if r.running %}<span class="ok">running</span>{% else %}<span class="bad">stopped</span>{% endif %}</div>
+          <div><small>ticks={{ r.ticks }} · tick_age={{ '%.1fs'|format(r.tick_age_sec) if r.tick_age_sec is not none else '-' }}</small></div>
+          <div><small>stop_timeout={% if r.stop_timed_out %}yes{% else %}no{% endif %} · latency={{ '%.3fs'|format(r.last_stop_latency_sec or 0) }}</small></div>
+          <div><small>crashed={% if r.crashed %}yes{% else %}no{% endif %}</small></div>
+        </td>
+        <td>
+          {% if r.license_ok %}<span class="ok">ok</span>{% else %}<span class="bad">{{ r.license_reason }}</span>{% endif %}
+          <div><small>{{ r.license_reason_message }}</small></div>
+          {% if r.enforcement_reason %}<div><small>enforced: {{ r.enforcement_reason }}</small></div>{% endif %}
+          <div><small>last_error: {{ r.last_error or '-' }}</small></div>
         </td>
         <td>
           <form method="post" action="/admin/workers/start">
@@ -50,6 +55,27 @@
             <input type="hidden" name="tenant_id" value="{{ r.tenant_id }}" />
             <button type="submit">Stop</button>
           </form>
+          <br><br>
+          {% if r.license_token %}
+          <form method="post" action="/admin/licenses/suspend">
+            <input type="hidden" name="token" value="{{ r.license_token }}">
+            <input type="hidden" name="next" value="/admin/control">
+            <button type="submit">Suspend</button>
+          </form>
+          <form method="post" action="/admin/licenses/activate">
+            <input type="hidden" name="token" value="{{ r.license_token }}">
+            <input type="hidden" name="next" value="/admin/control">
+            <button type="submit">Activate</button>
+          </form>
+          <form method="post" action="/admin/licenses/renew">
+            <input type="hidden" name="token" value="{{ r.license_token }}">
+            <input type="hidden" name="next" value="/admin/control">
+            <input name="days" type="number" value="30" min="1">
+            <button type="submit">Renew days</button>
+          </form>
+          {% else %}
+          <small class="bad">no license token</small>
+          {% endif %}
         </td>
       </tr>
       {% endfor %}
