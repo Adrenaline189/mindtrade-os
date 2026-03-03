@@ -18,6 +18,13 @@ cp .env.example .env
 ./venv/bin/python main.py
 ```
 
+Default behavior: app startup auto-starts default tenant worker.
+Disable with:
+
+```bash
+AUTO_START_DEFAULT_WORKER=0 ./venv/bin/python main.py
+```
+
 Open: http://127.0.0.1:8000
 
 ## Safety for LIVE
@@ -65,10 +72,15 @@ License enforcement (Phase 2 hardening):
 - Worker start is denied for suspended/expired tenant license.
 - Running worker re-checks license every ~30s and auto-stops on invalid license.
 
-Smoke check:
+Smoke checks:
 
 ```bash
 ./venv/bin/python scripts/smoke_workers.py
+./venv/bin/python scripts/smoke_multi_tenant_workers.py
+./venv/bin/python scripts/load_test_tenant_workers.py --tenants 3 --duration 2.5
+./venv/bin/python scripts/verify_stop_loop.py
+./venv/bin/python scripts/smoke_billing_enforcement.py
+./venv/bin/python scripts/smoke_signup_trial_admin_flow.py
 ```
 
 ## Bot service scripts

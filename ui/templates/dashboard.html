@@ -121,68 +121,40 @@
   <div class="card"><div class="kpi-label"><span id="txt_conn">Connection</span></div><div class="kpi-value" id="k_conn">-</div></div>
     <div class="card"><div class="kpi-label"><span id="txt_exposure">Exposure |uPnL|</span></div><div class="kpi-value" id="k_exposure">0</div></div>
     <div class="card"><div class="kpi-label"><span id="txt_openpos">Open Positions</span></div><div class="kpi-value" id="k_positions">0</div></div>
+    <div class="card"><div class="kpi-label"><span id="txt_futbal">Futures Balance (USDT)</span></div><div class="kpi-value" id="k_futbal">0</div></div>
 </div>
 
 
-  <div class="inspo">
+  <div class="inspo" style="grid-template-columns: 1fr 1fr 1fr;">
     <div class="card">
-      <h3 style="margin-top:0">Overview</h3>
-      <div style="display:grid;grid-template-columns:200px 1fr;gap:10px;align-items:center;">
-        <div class="donut"></div>
-        <div class="mini-list">
-          <div><span>BTC</span><strong>$763.51</strong></div>
-          <div><span>ETH</span><strong>$677.52</strong></div>
-          <div><span>USDT</span><strong>$57.76</strong></div>
-          <div><span>Total Balance</span><strong id="k_totalr">{{ summary.total_r }}</strong></div>
-        </div>
-      </div>
-    </div>
-    <div class="card">
-      <h3 style="margin-top:0">Profit and Loss</h3>
-      <canvas id="pnlBar" height="120"></canvas>
-    </div>
-    <div class="card">
-      <h3 style="margin-top:0">Active Bots</h3>
+      <h3 style="margin-top:0">Overview (Live)</h3>
       <div class="mini-list">
-        <div><span>Kraken</span><strong>1</strong></div>
-        <div><span>Binance</span><strong>{{ cfg.SYMBOLS|length }}</strong></div>
-        <div><span>Status</span><strong>{% if running %}RUNNING{% else %}STOPPED{% endif %}</strong></div>
+        <div><span>Entries</span><strong id="ov_entries">0</strong></div>
+        <div><span>Win Rate</span><strong id="ov_win">0%</strong></div>
+        <div><span>Total R</span><strong id="ov_total_r">0</strong></div>
+        <div><span>Max DD (R)</span><strong id="ov_maxdd">0</strong></div>
       </div>
     </div>
-  </div>
-
-  <div class="inspo" style="grid-template-columns: 2fr 1fr;">
     <div class="card">
-      <h3 style="margin-top:0">My Coins on Exchanges</h3>
-      <table>
-        <thead><tr><th>Coin/Exchange</th><th>Amount</th><th>Value</th><th>Allocation</th></tr></thead>
-        <tbody>
-          <tr><td>Bitcoin (BTC)</td><td>21.123456</td><td>$582,637.73</td><td>43%</td></tr>
-          <tr><td>Ethereum (ETH)</td><td>12.456700</td><td>$282,122.19</td><td>33%</td></tr>
-          <tr><td>Solana (SOL)</td><td>843.12</td><td>$102,987.12</td><td>24%</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="card">
-      <h3 style="margin-top:0">The Best Cryptos</h3>
+      <h3 style="margin-top:0">Exposure</h3>
       <div class="mini-list">
-        <div><span>Bitcoin (BTC)</span><strong>+0.44%</strong></div>
-        <div class="spark"></div>
-        <div><span>Ethereum (ETH)</span><strong>+0.31%</strong></div>
-        <div class="spark"></div>
-        <div><span>Solana (SOL)</span><strong>+1.25%</strong></div>
-        <div class="spark"></div>
+        <div><span>Open Positions</span><strong id="ov_openpos">0</strong></div>
+        <div><span>|uPnL| Exposure</span><strong id="ov_exposure">0</strong></div>
+        <div><span>Connection</span><strong id="ov_conn">-</strong></div>
+        <div><span>System Mode</span><strong id="ov_mode">LIVE</strong></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Symbols (Active)</h3>
+      <div class="mini-list" id="ov_symbols_box">
+        {% for sym in cfg.SYMBOLS %}
+          <div><span>{{ sym }}</span><strong>active</strong></div>
+        {% endfor %}
       </div>
     </div>
   </div>
 
-  <div class="card" style="margin-bottom:14px;">
-    <h3 style="margin-top:0"><span id="txt_chart">📉 Price + Signal Timeline</span></h3>
-    <canvas id="priceChart" height="110"></canvas>
-  </div>
-
-  
-  <div class="card" style="margin-bottom:14px;">
+<div class="card" style="margin-bottom:14px;">
     <h3 style="margin-top:0">📘 คู่มือการกรอกค่า (Dashboard Guide)</h3>
     <details open>
       <summary><b>วิธีใช้งานแบบเร็ว</b></summary>
@@ -241,6 +213,11 @@
         {% endfor %}
         </tbody>
       </table>
+      <div id="eventsPager" class="toolbar" style="justify-content:flex-end">
+        <button type="button" id="evtPrev">◀ Prev</button>
+        <span class="small" id="evtPageInfo">Page 1/1</span>
+        <button type="button" id="evtNext">Next ▶</button>
+      </div>
     </div>
 
     <div class="card">
@@ -261,6 +238,22 @@
       <div class="actions">
         <form action="/start" method="post"><button id="txt_start_btn">▶ START</button></form>
         <form action="/stop" method="post"><button class="danger" id="txt_stop_btn">⏹ STOP</button></form>
+      </div>
+
+      <div class="card" style="margin-top:10px; border:1px dashed #3a548f;">
+        <h4 style="margin:0 0 8px 0;">🔐 Binance API (ลูกค้า)</h4>
+        <div class="small" style="margin-bottom:8px;">สถานะ: {% if has_user_api %}<span style="color:#57e39f">บันทึกแล้ว</span>{% else %}<span style="color:#ffbf66">ยังไม่ได้บันทึก</span>{% endif %}</div>
+        <form action="/settings/api/save" method="post">
+          <label>API Key</label><input name="api_key" placeholder="กรอก API Key">
+          <label>API Secret</label><input name="api_secret" type="password" placeholder="กรอก API Secret">
+          <div class="actions">
+            <button type="submit">Save API</button>
+          </div>
+        </form>
+        <div class="actions" style="margin-top:8px;">
+          <button type="button" id="btnTestApi">Test Connection</button>
+          <span class="small" id="apiTestResult">-</span>
+        </div>
       </div>
     </div>
   </div>
@@ -330,6 +323,12 @@ async function refreshSummary(){
   document.getElementById('k_sl').textContent = s.sl_hits;
   document.getElementById('k_exposure').textContent = data.exposure_abs_upnl ?? 0;
   document.getElementById('k_positions').textContent = data.open_positions_count ?? 0;
+  try{
+    const fb = await fetch('/api/futures-balance').then(r=>r.json());
+    const val = Number(fb.total||0).toFixed(2);
+    const kb = document.getElementById('k_futbal');
+    if(kb) kb.textContent = val;
+  }catch(e){}
   document.getElementById('blockedBox').textContent = JSON.stringify(data.blocked_reasons || {}, null, 2);
 
   const tb=document.querySelector('#posTable tbody');
@@ -345,17 +344,47 @@ async function refreshSummary(){
 
   const c = await fetch('/api/connection').then(r=>r.json());
   document.getElementById('k_conn').textContent = c.ok ? 'OK' : 'ERR';
+
+  const ovEntries=document.getElementById('ov_entries'); if(ovEntries) ovEntries.textContent=s.entries;
+  const ovWin=document.getElementById('ov_win'); if(ovWin) ovWin.textContent=s.win_rate + '%';
+  const ovTotal=document.getElementById('ov_total_r'); if(ovTotal) ovTotal.textContent=s.total_r;
+  const ovOpen=document.getElementById('ov_openpos'); if(ovOpen) ovOpen.textContent=data.open_positions_count ?? 0;
+  const ovExp=document.getElementById('ov_exposure'); if(ovExp) ovExp.textContent=data.exposure_abs_upnl ?? 0;
+  const ovMode=document.getElementById('ov_mode'); if(ovMode) ovMode.textContent=data.mode || 'LIVE';
+  const ovConn=document.getElementById('ov_conn'); if(ovConn) ovConn.textContent = c.ok ? 'OK' : 'ERR';
+  const ovDD=document.getElementById('ov_maxdd'); if(ovDD) ovDD.textContent = p.max_dd_r;
 }
 
-function applyFilters(){
+let eventsPage = 1;
+const eventsPageSize = 20;
+
+function applyFilters(resetPage=false){
   if(currentSymbol){ document.getElementById('filterSymbol').value=currentSymbol; }
+  if(resetPage) eventsPage = 1;
+
   const fs = document.getElementById('filterSymbol').value;
   const fr = document.getElementById('filterResult').value;
-  document.querySelectorAll('#eventsTable tbody tr').forEach(tr => {
+  const rows = Array.from(document.querySelectorAll('#eventsTable tbody tr'));
+  const filtered = rows.filter(tr => {
     const okS = !fs || tr.dataset.symbol === fs;
     const okR = !fr || tr.dataset.result === fr;
-    tr.style.display = (okS && okR) ? '' : 'none';
+    return okS && okR;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / eventsPageSize));
+  if(eventsPage > totalPages) eventsPage = totalPages;
+  const start = (eventsPage - 1) * eventsPageSize;
+  const end = start + eventsPageSize;
+
+  rows.forEach(tr => tr.style.display = 'none');
+  filtered.slice(start, end).forEach(tr => tr.style.display = '');
+
+  const info = document.getElementById('evtPageInfo');
+  if(info) info.textContent = `Page ${eventsPage}/${totalPages}`;
+  const prev = document.getElementById('evtPrev');
+  const next = document.getElementById('evtNext');
+  if(prev) prev.disabled = eventsPage <= 1;
+  if(next) next.disabled = eventsPage >= totalPages;
 }
 
 async function initFilters(){
@@ -370,7 +399,9 @@ async function renderChart(){
   const qs = currentSymbol ? ('&symbol='+encodeURIComponent(currentSymbol)) : '';
   const res = await fetch('/api/chart?limit=120'+qs);
   const d = await res.json();
-  const ctx = document.getElementById('priceChart').getContext('2d');
+  const el = document.getElementById('priceChart');
+  if(!el) return;
+  const ctx = el.getContext('2d');
   if(chart) chart.destroy();
 
   let datasets = [];
@@ -396,12 +427,12 @@ async function renderChart(){
 function applyLanguage(lang){
   const th={
     txt_title:'📈 MindTrade OS · ธีมโปร', txt_symbols:'เหรียญ', txt_mode:'โหมด', txt_maxdd:'ดรอดาวน์สูงสุด (R)', txt_entries:'จำนวนเข้าไม้', txt_win:'อัตราชนะ', txt_totalr:'รวม R', txt_tp:'จำนวน TP', txt_sl:'จำนวน SL',
-    txt_conn:'การเชื่อมต่อ', txt_exposure:'ความเสี่ยง |uPnL|', txt_openpos:'โพสิชันที่เปิด', txt_chart:'📉 กราฟราคา + สัญญาณ', txt_events:'🧾 เหตุการณ์ล่าสุด', txt_runtime:'⚙ ตั้งค่าระบบ', txt_blocked:'🚧 เหตุผลที่บล็อก', txt_positions_tbl:'📦 โพสิชันที่เปิด',
+    txt_conn:'การเชื่อมต่อ', txt_exposure:'ความเสี่ยง |uPnL|', txt_openpos:'โพสิชันที่เปิด', txt_futbal:'ยอดฟิวเจอร์ (USDT)', txt_chart:'📉 กราฟราคา + สัญญาณ', txt_events:'🧾 เหตุการณ์ล่าสุด', txt_runtime:'⚙ ตั้งค่าระบบ', txt_blocked:'🚧 เหตุผลที่บล็อก', txt_positions_tbl:'📦 โพสิชันที่เปิด',
     txt_save_btn:'บันทึก', txt_start_btn:'▶ เริ่ม', txt_stop_btn:'⏹ หยุด', txt_panic_btn:'🛑 หยุดฉุกเฉิน', txt_unpanic_btn:'✅ ปลดฉุกเฉิน'
   };
   const en={
     txt_title:'📈 MindTrade OS · Pro Theme', txt_symbols:'Symbols', txt_mode:'Mode', txt_maxdd:'Max DD (R)', txt_entries:'Entries', txt_win:'Win Rate', txt_totalr:'Total R', txt_tp:'TP Hits', txt_sl:'SL Hits',
-    txt_conn:'Connection', txt_exposure:'Exposure |uPnL|', txt_openpos:'Open Positions', txt_chart:'📉 Price + Signal Timeline', txt_events:'🧾 Latest Events', txt_runtime:'⚙ Runtime Settings', txt_blocked:'🚧 Blocked Reasons', txt_positions_tbl:'📦 Open Positions',
+    txt_conn:'Connection', txt_exposure:'Exposure |uPnL|', txt_openpos:'Open Positions', txt_futbal:'Futures Balance (USDT)', txt_chart:'📉 Price + Signal Timeline', txt_events:'🧾 Latest Events', txt_runtime:'⚙ Runtime Settings', txt_blocked:'🚧 Blocked Reasons', txt_positions_tbl:'📦 Open Positions',
     txt_save_btn:'Save', txt_start_btn:'▶ START', txt_stop_btn:'⏹ STOP', txt_panic_btn:'🛑 PANIC', txt_unpanic_btn:'✅ UNPANIC'
   };
   const d = lang==='th'?th:en;
@@ -432,9 +463,9 @@ async function refreshLeverage(){
   }catch(e){}
 }
 
-setInterval(()=>{ refreshSummary(); renderChart(); refreshLeverage(); }, 10000);
-document.getElementById('filterSymbol').addEventListener('change', applyFilters);
-document.getElementById('filterResult').addEventListener('change', applyFilters);
+setInterval(()=>{ refreshSummary(); refreshLeverage(); }, 10000);
+document.getElementById('filterSymbol').addEventListener('change', ()=>applyFilters(true));
+document.getElementById('filterResult').addEventListener('change', ()=>applyFilters(true));
 
   const pctx = document.getElementById('pnlBar');
   if (pctx) {
@@ -488,7 +519,95 @@ if(helpClose) helpClose.addEventListener('click', helpHide);
 if(helpSend) helpSend.addEventListener('click', helpAsk);
 if(helpQ) helpQ.addEventListener('keydown',(e)=>{ if(e.key==='Enter') helpAsk(); });
 
-renderTabs(); initFilters(); refreshSummary(); renderChart(); refreshLeverage();
+
+let eventsData = [];
+
+function toBangkokTime(v){
+  try{
+    if(!v) return '';
+    const d = new Date(v);
+    if (isNaN(d.getTime())) return String(v);
+    return d.toLocaleString('th-TH', { timeZone:'Asia/Bangkok', hour12:false });
+  }catch(e){ return String(v||''); }
+}
+
+
+function renderEventsPage(){
+  if(currentSymbol){ document.getElementById('filterSymbol').value=currentSymbol; }
+  const fs = document.getElementById('filterSymbol').value;
+  const fr = document.getElementById('filterResult').value;
+  const filtered = eventsData.filter(e => (!fs || (e.symbol||'-')===fs) && (!fr || (e.result||'')===fr));
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / eventsPageSize));
+  if(eventsPage > totalPages) eventsPage = totalPages;
+  const start = (eventsPage - 1) * eventsPageSize;
+  const pageItems = filtered.slice(start, start + eventsPageSize);
+
+  const tb = document.querySelector('#eventsTable tbody');
+  if(tb){
+    tb.innerHTML='';
+    pageItems.forEach(t=>{
+      const tr=document.createElement('tr');
+      tr.dataset.symbol=t.symbol||'-';
+      tr.dataset.result=t.result||'';
+      tr.innerHTML = `<td>${toBangkokTime(t.time)||''}</td><td>${t.symbol||'-'}</td><td>${t.bias||''}</td><td>${t.rsi||''}</td><td><span class="tag ${t.result||''}">${t.result||''}</span></td><td>${t.note||''}</td>`;
+      tb.appendChild(tr);
+    });
+  }
+
+  const info = document.getElementById('evtPageInfo');
+  if(info) info.textContent = `Page ${eventsPage}/${totalPages}`;
+  const prev = document.getElementById('evtPrev');
+  const next = document.getElementById('evtNext');
+  if(prev) prev.disabled = eventsPage <= 1;
+  if(next) next.disabled = eventsPage >= totalPages;
+}
+
+async function loadEventsData(){
+  try{
+    const res = await fetch('/api/events?limit=500');
+    const data = await res.json();
+    eventsData = (data.events||[]).slice().reverse();
+
+    const syms = [...new Set(eventsData.map(e=>e.symbol).filter(Boolean))].sort();
+    const sel = document.getElementById('filterSymbol');
+    if(sel){
+      sel.innerHTML = '<option value="">All Symbols</option>';
+      syms.forEach(v=>{ const o=document.createElement('option'); o.value=v; o.textContent=v; sel.appendChild(o); });
+    }
+    eventsPage = 1;
+    renderEventsPage();
+  }catch(e){}
+}
+
+function applyFilters(resetPage=false){
+  if(resetPage) eventsPage = 1;
+  renderEventsPage();
+}
+
+const filterSymbolEl=document.getElementById('filterSymbol');
+const filterResultEl=document.getElementById('filterResult');
+if(filterSymbolEl) filterSymbolEl.onchange=()=>applyFilters(true);
+if(filterResultEl) filterResultEl.onchange=()=>applyFilters(true);
+if(evtPrev) evtPrev.onclick=()=>{ eventsPage=Math.max(1,eventsPage-1); renderEventsPage(); };
+if(evtNext) evtNext.onclick=()=>{ eventsPage=eventsPage+1; renderEventsPage(); };
+
+
+const btnTestApi=document.getElementById('btnTestApi');
+const apiTestResult=document.getElementById('apiTestResult');
+if(btnTestApi){
+  btnTestApi.addEventListener('click', async ()=>{
+    apiTestResult.textContent='testing...';
+    try{
+      const r=await fetch('/settings/api/test',{method:'POST'});
+      const d=await r.json();
+      apiTestResult.textContent = d.ok ? `OK • USDT ${Number(d.usdt_total||0).toFixed(2)}` : `ERR • ${d.error||'unknown'}`;
+    }catch(e){ apiTestResult.textContent='ERR • request failed'; }
+  });
+}
+
+renderTabs(); loadEventsData(); refreshSummary(); refreshLeverage();
+
 </script>
 </body>
 </html>

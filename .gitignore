@@ -14,6 +14,7 @@ venv/
 logs/
 data/
 licenses/
+backups/
 *.db
 
 # OS/editor

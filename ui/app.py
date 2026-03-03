@@ -49,6 +49,18 @@ RUNTIME_CONFIG["MODE"] = "LIVE"
 RUNTIME_CONFIG["ALLOW_LIVE_ORDERS"] = True
 
 
+@app.on_event('startup')
+def startup_default_worker():
+    import os
+    auto_start = os.getenv('AUTO_START_DEFAULT_WORKER', '1').strip().lower() not in {'0', 'false', 'no'}
+    if not auto_start:
+        return
+    try:
+        engine_manager.start(default_tenant_id())
+    except Exception:
+        pass
+
+
 def current_tenant_id(request: Request | None = None) -> str:
     if request is None:
         return default_tenant_id()

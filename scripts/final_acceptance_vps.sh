@@ -9,9 +9,9 @@ cd "$ROOT"
 
 echo "[1/5] health endpoint"
 health_json="$(curl -fsS "$BASE_URL/health")"
-echo "$health_json" | $PY - <<'PY'
-import json,sys
-j=json.loads(sys.stdin.read())
+HEALTH_JSON="$health_json" $PY - <<'PY'
+import json, os
+j=json.loads(os.environ.get('HEALTH_JSON',''))
 assert j.get('ok') is True, j
 print({'ok':j.get('ok'),'running':j.get('running'),'workers':len(j.get('workers') or [])})
 PY

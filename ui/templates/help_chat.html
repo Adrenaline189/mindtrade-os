@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="th"><head>
+<meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>MindTrade OS Help Chat</title>
+<style>
+body{font-family:Inter,Arial;background:#0b1020;color:#eef4ff;padding:20px}.wrap{max-width:900px;margin:0 auto}
+.card{background:#121a32;border:1px solid #2a3a68;border-radius:12px;padding:14px;margin-bottom:12px}
+textarea{width:100%;min-height:90px;background:#0f1530;color:#fff;border:1px solid #334a7d;border-radius:10px;padding:10px}
+button{background:#3f6de0;color:#fff;border:0;padding:9px 14px;border-radius:9px;cursor:pointer}
+.msg{white-space:pre-wrap;line-height:1.5}.hint{color:#9bb0d8;font-size:13px}
+.quick button{margin:4px;background:#223760}
+</style>
+</head><body>
+<div class="wrap">
+  <h2>💬 AI Help Chat (Bot Usage Only)</h2>
+  <div class="card hint">ระบบนี้ตอบเฉพาะการใช้งาน MindTrade OS และบอทเทรดเท่านั้นค่ะ</div>
+  <div class="card quick">
+    <button onclick="askQ('leverage ต่างกันยังไง')">leverage ต่างกันยังไง</button>
+    <button onclick="askQ('cooldown คืออะไร')">cooldown คืออะไร</button>
+    <button onclick="askQ('ตั้งค่า api binance ยังไง')">ตั้งค่า API Binance ยังไง</button>
+    <button onclick="askQ('วิธี start stop bot')">วิธี start/stop</button>
+  </div>
+  <div class="card">
+    <textarea id="q" placeholder="พิมพ์คำถามเกี่ยวกับการใช้งานบอท..."></textarea>
+    <div style="margin-top:8px;display:flex;gap:8px"><button onclick="sendQ()">ถาม</button><a href='/' style='color:#8fb3ff'>กลับ Dashboard</a></div>
+  </div>
+  <div class="card msg" id="a">คำตอบจะแสดงตรงนี้ค่ะ</div>
+</div>
+<script>
+async function askQ(text){document.getElementById('q').value=text; await sendQ();}
+async function sendQ(){
+  const q=document.getElementById('q').value.trim();
+  if(!q) return;
+  const res=await fetch('/api/help-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
+  const data=await res.json();
+  document.getElementById('a').textContent=data.answer||'-';
+}
+</script>
+</body></html>
