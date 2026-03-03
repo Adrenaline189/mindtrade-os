@@ -1,6 +1,5 @@
 import csv
 import re
-import threading
 from collections import Counter
 from pathlib import Path
 
@@ -11,12 +10,17 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from bot.config_runtime import RUNTIME_CONFIG
-from bot.engine import run_engine, exchange, apply_leverage_settings
+from bot.engine import exchange, apply_leverage_settings
+from bot.engine_manager import engine_manager
 from bot.state import bot_state
 from bot.license import license_ok
 from bot.license_service import issue_license, list_licenses, record_payment, has_payment_event, set_license_active, delete_license, renew_license, find_licenses, list_payments_for_license
-from bot.auth_service import create_user, verify_user
+from bot.auth_service import create_user, verify_user, resolve_user_tenant
+from bot.paths import get_tenant_paths
 from bot.runtime_store import load_runtime_config, save_runtime_config
+from bot.tenant_context import default_tenant_id, tenant_scope
+from bot.tenant_store import get_tenant_for_user
+from bot.user_api_store import set_user_api, has_user_api, get_user_api
 
 load_dotenv()
 
@@ -24,20 +28,33 @@ app = FastAPI(title="MindTrade OS")
 app.add_middleware(SessionMiddleware, secret_key=__import__('os').getenv('SESSION_SECRET', 'mindtrade-dev-secret'))
 BASE_DIR = Path(__file__).resolve().parents[1]
 templates = Jinja2Templates(directory=str(BASE_DIR / "ui" / "templates"))
-TRADE_CSV = BASE_DIR / "data" / "paper_trades.csv"
-
-# Load persisted runtime config first
-load_runtime_config()
+# Load default tenant config at boot (request handlers switch by tenant context)
+load_runtime_config(default_tenant_id())
 
 # Force LIVE-only operation
 RUNTIME_CONFIG["MODE"] = "LIVE"
 RUNTIME_CONFIG["ALLOW_LIVE_ORDERS"] = True
 
 
-def load_trades(limit: int | None = None):
-    if not TRADE_CSV.exists():
+def current_tenant_id(request: Request | None = None) -> str:
+    if request is None:
+        return default_tenant_id()
+    if hasattr(request, 'session'):
+        tenant_id = (request.session.get('tenant_id') or '').strip()
+        if tenant_id:
+            return tenant_id
+        email = (request.session.get('user_email') or '').strip().lower()
+        tenant_id = get_tenant_for_user(email)
+        request.session['tenant_id'] = tenant_id
+        return tenant_id
+    return default_tenant_id()
+
+
+def load_trades(tenant_id: str, limit: int | None = None):
+    trade_csv = get_tenant_paths(tenant_id)["trades_csv"]
+    if not trade_csv.exists():
         return []
-    with TRADE_CSV.open(newline="") as f:
+    with trade_csv.open(newline="") as f:
         rows = list(csv.DictReader(f))
     if limit:
         return rows[-limit:]
@@ -106,18 +123,24 @@ def trade_summary(trades):
 
 @app.get("/")
 def dashboard(request: Request):
-    trades = load_trades(limit=300)
-    summary = trade_summary(trades)
-    return templates.TemplateResponse(
-        "dashboard.html",
-        {
-            "request": request,
-            "cfg": RUNTIME_CONFIG,
-            "running": bot_state["running"],
-            "trades": trades[-50:],
-            "summary": summary,
-        },
-    )
+    tenant_id = current_tenant_id(request)
+    with tenant_scope(tenant_id):
+        load_runtime_config(tenant_id)
+        trades = load_trades(tenant_id=tenant_id, limit=300)
+        summary = trade_summary(trades)
+        email = (request.session.get('user_email') or '').strip().lower() if hasattr(request, 'session') else ''
+        return templates.TemplateResponse(
+            "dashboard.html",
+            {
+                "request": request,
+                "cfg": RUNTIME_CONFIG,
+                "running": bot_state["running"],
+                "trades": trades[-50:],
+                "summary": summary,
+                "tenant_id": tenant_id,
+                "has_user_api": has_user_api(email, tenant_id=tenant_id),
+            },
+        )
 
 
 @app.get('/health')
@@ -126,6 +149,7 @@ def health():
     return {
         'ok': True,
         'running': bot_state['running'],
+        'active_tenant_id': engine_manager.active_tenant_id,
         'mode': RUNTIME_CONFIG['MODE'],
         'allow_live': RUNTIME_CONFIG['ALLOW_LIVE_ORDERS'],
         'panic_stop': RUNTIME_CONFIG['PANIC_STOP'],
@@ -136,68 +160,72 @@ def health():
 
 
 @app.get('/api/summary')
-def api_summary(symbol: str | None = None):
-    trades = load_trades(limit=500)
-    if symbol:
-        trades = [t for t in trades if t.get('symbol') == symbol]
-    blocked_reasons = Counter((t.get('note') or '').split(':')[0] for t in trades if t.get('result')=='BLOCKED')
-    positions = fetch_open_positions()
-    exposure = sum(abs(float(p.get('unrealizedPnl') or 0)) for p in positions)
-    return JSONResponse({'summary': trade_summary(trades), 'running': bot_state['running'], 'mode': RUNTIME_CONFIG['MODE'], 'symbol': symbol or 'ALL', 'blocked_reasons': dict(blocked_reasons), 'open_positions_count': len(positions), 'open_positions': positions, 'exposure_abs_upnl': round(exposure,4)})
+def api_summary(request: Request, symbol: str | None = None):
+    tenant_id = current_tenant_id(request)
+    with tenant_scope(tenant_id):
+        load_runtime_config(tenant_id)
+        trades = load_trades(tenant_id=tenant_id, limit=500)
+        if symbol:
+            trades = [t for t in trades if t.get('symbol') == symbol]
+        blocked_reasons = Counter((t.get('note') or '').split(':')[0] for t in trades if t.get('result')=='BLOCKED')
+        positions = fetch_open_positions()
+        exposure = sum(abs(float(p.get('unrealizedPnl') or 0)) for p in positions)
+        return JSONResponse({'summary': trade_summary(trades), 'running': bot_state['running'], 'mode': RUNTIME_CONFIG['MODE'], 'symbol': symbol or 'ALL', 'tenant_id': tenant_id, 'blocked_reasons': dict(blocked_reasons), 'open_positions_count': len(positions), 'open_positions': positions, 'exposure_abs_upnl': round(exposure,4)})
 
 
 @app.get('/api/events')
-def api_events(limit: int = 200):
-    trades = load_trades(limit=limit)
-    return JSONResponse({'events': trades})
+def api_events(request: Request, limit: int = 200):
+    tenant_id = current_tenant_id(request)
+    trades = load_trades(tenant_id=tenant_id, limit=limit)
+    return JSONResponse({'events': trades, 'tenant_id': tenant_id})
 
 
 @app.get('/api/chart')
-def api_chart(limit: int = 200, symbol: str | None = None):
-    # Prefer Binance OHLCV for real multi-symbol chart
-    symbols = [symbol] if symbol else list(RUNTIME_CONFIG.get('SYMBOLS', []))
-    symbols = symbols[:3] if symbols else ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
+def api_chart(request: Request, limit: int = 200, symbol: str | None = None):
+    tenant_id = current_tenant_id(request)
+    with tenant_scope(tenant_id):
+        load_runtime_config(tenant_id)
+        symbols = [symbol] if symbol else list(RUNTIME_CONFIG.get('SYMBOLS', []))
+        symbols = symbols[:3] if symbols else ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
 
-    try:
-        exchange.load_markets()
-        raw = {}
-        ts_union = set()
-        for sym in symbols:
-            ohlcv = exchange.fetch_ohlcv(sym, timeframe='5m', limit=limit)
-            raw[sym] = ohlcv
-            for row in ohlcv:
-                ts_union.add(int(row[0]))
+        try:
+            exchange.load_markets()
+            raw = {}
+            ts_union = set()
+            for sym in symbols:
+                ohlcv = exchange.fetch_ohlcv(sym, timeframe='5m', limit=limit)
+                raw[sym] = ohlcv
+                for row in ohlcv:
+                    ts_union.add(int(row[0]))
 
-        ts_sorted = sorted(ts_union)
-        labels = [__import__('datetime').datetime.utcfromtimestamp(t/1000).strftime('%H:%M') for t in ts_sorted]
+            ts_sorted = sorted(ts_union)
+            labels = [__import__('datetime').datetime.utcfromtimestamp(t/1000).strftime('%H:%M') for t in ts_sorted]
 
-        series = {}
-        for sym in symbols:
-            idx = {int(r[0]): float(r[4]) for r in raw.get(sym, [])}
-            series[sym] = [idx.get(t) for t in ts_sorted]
+            series = {}
+            for sym in symbols:
+                idx = {int(r[0]): float(r[4]) for r in raw.get(sym, [])}
+                series[sym] = [idx.get(t) for t in ts_sorted]
 
-        return JSONResponse({'labels': labels, 'series': series, 'source': 'binance_ohlcv'})
-    except Exception:
-        # fallback to local trade timeline
-        trades = load_trades(limit=limit)
-        if symbol:
-            trades = [t for t in trades if t.get('symbol') == symbol]
-        labels, prices, markers = [], [], []
-        for t in trades:
-            labels.append(t.get('time'))
-            try:
-                prices.append(float(t.get('close') or 0))
-            except Exception:
-                prices.append(None)
-            markers.append(t.get('result'))
-        return JSONResponse({'labels': labels, 'prices': prices, 'markers': markers, 'source': 'local_trades'})
-
-
+            return JSONResponse({'labels': labels, 'series': series, 'source': 'binance_ohlcv'})
+        except Exception:
+            trades = load_trades(tenant_id=tenant_id, limit=limit)
+            if symbol:
+                trades = [t for t in trades if t.get('symbol') == symbol]
+            labels, prices, markers = [], [], []
+            for t in trades:
+                labels.append(t.get('time'))
+                try:
+                    prices.append(float(t.get('close') or 0))
+                except Exception:
+                    prices.append(None)
+                markers.append(t.get('result'))
+            return JSONResponse({'labels': labels, 'prices': prices, 'markers': markers, 'source': 'local_trades'})
 
 
 @app.get('/api/performance')
-def api_performance():
-    trades = load_trades(limit=5000)
+def api_performance(request: Request):
+    tenant_id = current_tenant_id(request)
+    trades = load_trades(tenant_id=tenant_id, limit=5000)
     r_values = []
     for t in trades:
         note = str(t.get('note',''))
@@ -230,19 +258,18 @@ def api_performance():
     })
 
 @app.post("/start")
-def start_bot():
+def start_bot(request: Request):
     lic_ok, _ = license_ok()
     if not lic_ok:
         return RedirectResponse("/?err=license", status_code=303)
-    if not bot_state["running"]:
-        bot_state["running"] = True
-        threading.Thread(target=run_engine, daemon=True).start()
+    tenant_id = current_tenant_id(request)
+    engine_manager.start(tenant_id)
     return RedirectResponse("/", status_code=303)
 
 
 @app.post("/stop")
 def stop_bot():
-    bot_state["running"] = False
+    engine_manager.stop()
     return RedirectResponse("/", status_code=303)
 
 
@@ -260,6 +287,7 @@ def unpanic_stop():
 
 @app.post("/update")
 def update_config(
+    request: Request,
     rsi_min: int = Form(...),
     rsi_max: int = Form(...),
     gz: float = Form(...),
@@ -274,75 +302,73 @@ def update_config(
     daily_loss_cap_pct: float = Form(3.0),
     symbols: str = Form("BTC/USDT,ETH/USDT,SOL/USDT"),
 ):
-    if rsi_min >= rsi_max:
-        return RedirectResponse("/", status_code=303)
-    if risk <= 0 or leverage < 1 or leverage > 125:
-        return RedirectResponse("/", status_code=303)
-    if margin_mode not in {"cross", "isolated"}:
-        return RedirectResponse("/", status_code=303)
-    if max_trades < 1 or cooldown_minutes < 0 or daily_loss_cap_pct <= 0:
-        return RedirectResponse("/", status_code=303)
+    tenant_id = current_tenant_id(request)
+    with tenant_scope(tenant_id):
+        load_runtime_config(tenant_id)
 
-    RUNTIME_CONFIG["RSI_MIN"] = rsi_min
-    RUNTIME_CONFIG["RSI_MAX"] = rsi_max
-    RUNTIME_CONFIG["GOLDEN_ZONE_DISTANCE"] = gz
-    RUNTIME_CONFIG["RISK_PER_TRADE"] = risk
-    RUNTIME_CONFIG["LEVERAGE"] = leverage
-    RUNTIME_CONFIG["MARGIN_MODE"] = margin_mode
-    RUNTIME_CONFIG["MODE"] = "LIVE"
-    RUNTIME_CONFIG["ALLOW_LIVE_ORDERS"] = True
-    RUNTIME_CONFIG["MAX_TRADES_PER_DAY"] = max_trades
-    RUNTIME_CONFIG["COOLDOWN_MINUTES"] = cooldown_minutes
-    RUNTIME_CONFIG["DAILY_LOSS_CAP_PCT"] = daily_loss_cap_pct
+        if rsi_min >= rsi_max:
+            return RedirectResponse("/", status_code=303)
+        if risk <= 0 or leverage < 1 or leverage > 125:
+            return RedirectResponse("/", status_code=303)
+        if margin_mode not in {"cross", "isolated"}:
+            return RedirectResponse("/", status_code=303)
+        if max_trades < 1 or cooldown_minutes < 0 or daily_loss_cap_pct <= 0:
+            return RedirectResponse("/", status_code=303)
 
-    parsed = [x.strip().upper() for x in symbols.split(',') if x.strip()]
-    # normalize separator
-    parsed = [x.replace('-', '/').replace(' ', '') for x in parsed]
-    valid = [x for x in parsed if '/' in x]
-    if valid:
-        RUNTIME_CONFIG["SYMBOLS"] = valid
+        RUNTIME_CONFIG["RSI_MIN"] = rsi_min
+        RUNTIME_CONFIG["RSI_MAX"] = rsi_max
+        RUNTIME_CONFIG["GOLDEN_ZONE_DISTANCE"] = gz
+        RUNTIME_CONFIG["RISK_PER_TRADE"] = risk
+        RUNTIME_CONFIG["LEVERAGE"] = leverage
+        RUNTIME_CONFIG["MARGIN_MODE"] = margin_mode
+        RUNTIME_CONFIG["MODE"] = "LIVE"
+        RUNTIME_CONFIG["ALLOW_LIVE_ORDERS"] = True
+        RUNTIME_CONFIG["MAX_TRADES_PER_DAY"] = max_trades
+        RUNTIME_CONFIG["COOLDOWN_MINUTES"] = cooldown_minutes
+        RUNTIME_CONFIG["DAILY_LOSS_CAP_PCT"] = daily_loss_cap_pct
 
-    # leverage map format: BTC/USDT:5,ETH/USDT:3
-    lev_map = {}
-    raw_map = leverage_by_symbol.strip()
-    if raw_map:
-        for pair in raw_map.split(','):
-            if ':' not in pair:
-                continue
-            sym, lv = pair.split(':', 1)
-            sym = sym.strip().upper().replace('-', '/').replace(' ', '')
-            try:
-                lv_int = int(lv.strip())
-                if 1 <= lv_int <= 125 and '/' in sym:
-                    lev_map[sym] = lv_int
-            except Exception:
-                continue
-    # keep leverage map aligned with selected symbols
-    valid_set = set(RUNTIME_CONFIG.get("SYMBOLS", []))
-    if lev_map:
-        RUNTIME_CONFIG["LEVERAGE_BY_SYMBOL"] = {k: v for k, v in lev_map.items() if k in valid_set}
-    else:
-        # if user leaves field empty, clear per-symbol override and use default leverage
-        RUNTIME_CONFIG["LEVERAGE_BY_SYMBOL"] = {}
+        parsed = [x.strip().upper() for x in symbols.split(',') if x.strip()]
+        parsed = [x.replace('-', '/').replace(' ', '') for x in parsed]
+        valid = [x for x in parsed if '/' in x]
+        if valid:
+            RUNTIME_CONFIG["SYMBOLS"] = valid
 
-    # always prune stale symbol overrides
-    if RUNTIME_CONFIG.get("LEVERAGE_BY_SYMBOL"):
-        RUNTIME_CONFIG["LEVERAGE_BY_SYMBOL"] = {
-            k: v for k, v in RUNTIME_CONFIG["LEVERAGE_BY_SYMBOL"].items() if k in valid_set
-        }
+        lev_map = {}
+        raw_map = leverage_by_symbol.strip()
+        if raw_map:
+            for pair in raw_map.split(','):
+                if ':' not in pair:
+                    continue
+                sym, lv = pair.split(':', 1)
+                sym = sym.strip().upper().replace('-', '/').replace(' ', '')
+                try:
+                    lv_int = int(lv.strip())
+                    if 1 <= lv_int <= 125 and '/' in sym:
+                        lev_map[sym] = lv_int
+                except Exception:
+                    continue
 
-    # persist runtime settings
-    try:
-        save_runtime_config()
-    except Exception:
-        pass
+        valid_set = set(RUNTIME_CONFIG.get("SYMBOLS", []))
+        if lev_map:
+            RUNTIME_CONFIG["LEVERAGE_BY_SYMBOL"] = {k: v for k, v in lev_map.items() if k in valid_set}
+        else:
+            RUNTIME_CONFIG["LEVERAGE_BY_SYMBOL"] = {}
 
-    # apply leverage immediately when bot is already running in LIVE mode
-    try:
-        if bot_state.get("running") and RUNTIME_CONFIG.get("MODE") == "LIVE" and RUNTIME_CONFIG.get("ALLOW_LIVE_ORDERS"):
-            apply_leverage_settings()
-    except Exception:
-        pass
+        if RUNTIME_CONFIG.get("LEVERAGE_BY_SYMBOL"):
+            RUNTIME_CONFIG["LEVERAGE_BY_SYMBOL"] = {
+                k: v for k, v in RUNTIME_CONFIG["LEVERAGE_BY_SYMBOL"].items() if k in valid_set
+            }
+
+        try:
+            save_runtime_config(tenant_id)
+        except Exception:
+            pass
+
+        try:
+            if bot_state.get("running") and RUNTIME_CONFIG.get("MODE") == "LIVE" and RUNTIME_CONFIG.get("ALLOW_LIVE_ORDERS"):
+                apply_leverage_settings()
+        except Exception:
+            pass
 
     return RedirectResponse("/", status_code=303)
 
@@ -390,7 +416,9 @@ def webhook_test():
 
 
 @app.get('/api/connection')
-def api_connection():
+def api_connection(request: Request):
+    tenant_id = current_tenant_id(request)
+    load_runtime_config(tenant_id)
     ok = True
     err = ''
     try:
@@ -407,7 +435,9 @@ def api_open_positions():
 
 
 @app.get('/api/leverage')
-def api_leverage():
+def api_leverage(request: Request):
+    tenant_id = current_tenant_id(request)
+    load_runtime_config(tenant_id)
     symbols = RUNTIME_CONFIG.get('SYMBOLS', [])
     default_lev = int(RUNTIME_CONFIG.get('LEVERAGE', 5))
     margin_mode = str(RUNTIME_CONFIG.get('MARGIN_MODE', 'cross'))
@@ -560,7 +590,9 @@ def auth_login_page(request: Request, err: str = ''):
 def auth_login(request: Request, email: str = Form(...), password: str = Form(...)):
     if not verify_user(email, password):
         return RedirectResponse('/auth/login?err=invalid', status_code=303)
-    request.session['user_email'] = email.strip().lower()
+    email_norm = email.strip().lower()
+    request.session['user_email'] = email_norm
+    request.session['tenant_id'] = resolve_user_tenant(email_norm)
     return RedirectResponse('/profile', status_code=303)
 
 
@@ -574,7 +606,18 @@ def auth_signup(request: Request, email: str = Form(...), password: str = Form(.
     ok, reason = create_user(email, password)
     if not ok:
         return RedirectResponse(f'/auth/signup?err={reason}', status_code=303)
-    request.session['user_email'] = email.strip().lower()
+
+    # Auto-create starter license so admin can see this account immediately
+    email_norm = email.strip().lower()
+    try:
+        exists = any((x.get('email') or '').strip().lower() == email_norm for x in list_licenses(5000))
+        if not exists:
+            issue_license(email=email_norm, plan='starter_trial', days=7, max_devices=1)
+    except Exception:
+        pass
+
+    request.session['user_email'] = email_norm
+    request.session['tenant_id'] = resolve_user_tenant(email_norm)
     return RedirectResponse('/profile', status_code=303)
 
 
@@ -630,3 +673,47 @@ def api_help_chat(payload: dict):
     q = str(payload.get('question') or '')
     ans = _help_answer(q)
     return JSONResponse({'ok': True, 'answer': ans})
+
+
+@app.get('/api/futures-balance')
+def api_futures_balance():
+    try:
+        bal = exchange.fetch_balance()
+        usdt = bal.get('USDT', {}) if isinstance(bal, dict) else {}
+        total = float(usdt.get('total') or 0)
+        free = float(usdt.get('free') or 0)
+        used = float(usdt.get('used') or 0)
+        return JSONResponse({'ok': True, 'asset': 'USDT', 'total': round(total, 6), 'free': round(free, 6), 'used': round(used, 6)})
+    except Exception as e:
+        return JSONResponse({'ok': False, 'error': str(e)[:180], 'asset': 'USDT', 'total': 0, 'free': 0, 'used': 0})
+
+
+@app.post('/settings/api/save')
+def settings_api_save(request: Request, api_key: str = Form(...), api_secret: str = Form(...)):
+    email = (request.session.get('user_email') or '').strip().lower()
+    if not email:
+        return RedirectResponse('/auth/login?err=login_required', status_code=303)
+    if not api_key.strip() or not api_secret.strip():
+        return RedirectResponse('/?api_err=missing', status_code=303)
+    tenant_id = current_tenant_id(request)
+    set_user_api(email, api_key.strip(), api_secret.strip(), tenant_id=tenant_id)
+    return RedirectResponse('/?api_ok=saved', status_code=303)
+
+
+@app.post('/settings/api/test')
+def settings_api_test(request: Request):
+    import ccxt
+    email = (request.session.get('user_email') or '').strip().lower()
+    if not email:
+        return JSONResponse({'ok': False, 'error': 'login_required'})
+    tenant_id = current_tenant_id(request)
+    k, sec = get_user_api(email, tenant_id=tenant_id)
+    if not k or not sec:
+        return JSONResponse({'ok': False, 'error': 'no_api_saved'})
+    try:
+        ex = ccxt.binance({'apiKey': k, 'secret': sec, 'enableRateLimit': True, 'options': {'defaultType': 'future'}})
+        b = ex.fetch_balance()
+        usdt = float((b.get('USDT') or {}).get('total') or 0)
+        return JSONResponse({'ok': True, 'usdt_total': usdt})
+    except Exception as e:
+        return JSONResponse({'ok': False, 'error': str(e)[:180]})

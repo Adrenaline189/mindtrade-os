@@ -12,15 +12,26 @@ from bot.alerts import send_telegram_alert
 from bot.config import EQUITY_USDT, MAX_SL_PERCENT
 from bot.config_runtime import RUNTIME_CONFIG
 from bot.indicators import ema, rsi
+from bot.paths import get_tenant_paths
 from bot.state import bot_state
 from bot.storage import count_entries_today_utc, init_db, log_trade
+from bot.tenant_context import default_tenant_id, tenant_scope
 
 load_dotenv()
 
 TIMEFRAME = "1h"
 LOOP_INTERVAL = 30
 BASE_DIR = Path(__file__).resolve().parents[1]
-DATA_FILE = BASE_DIR / "data" / "paper_trades.csv"
+ACTIVE_TENANT_ID = default_tenant_id()
+
+
+def set_active_tenant(tenant_id: str):
+    global ACTIVE_TENANT_ID
+    ACTIVE_TENANT_ID = (tenant_id or default_tenant_id()).strip()
+
+
+def _data_file() -> Path:
+    return get_tenant_paths(ACTIVE_TENANT_ID)["trades_csv"]
 
 exchange = ccxt.binance(
     {
@@ -46,9 +57,10 @@ def notify_trade(symbol: str, result: str, note: str = ""):
 
 
 def log_to_csv(row: dict):
-    DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
-    file_exists = DATA_FILE.exists()
-    with DATA_FILE.open(mode="a", newline="") as f:
+    data_file = _data_file()
+    data_file.parent.mkdir(parents=True, exist_ok=True)
+    file_exists = data_file.exists()
+    with data_file.open(mode="a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=row.keys())
         if not file_exists:
             writer.writeheader()
@@ -222,59 +234,60 @@ def apply_leverage_settings():
 
 
 def run_engine():
-    init_db()
-    notify("🚀 Trading bot started")
-    if RUNTIME_CONFIG.get("MODE") == "LIVE":
-        apply_leverage_settings()
-    while bot_state["running"]:
-        try:
-            if RUNTIME_CONFIG.get("PANIC_STOP", False):
-                time.sleep(LOOP_INTERVAL)
-                continue
-            for symbol in RUNTIME_CONFIG.get("SYMBOLS", ["BTC/USDT"]):
-                try:
-                    df = fetch_ohlcv_df(symbol)
-                    analysis = analyze_market(df)
-                    last_map = bot_state.setdefault("last_candle_time_by_symbol", {})
-                    if analysis["time"] == last_map.get(symbol):
-                        continue
-                    last_map[symbol] = analysis["time"]
+    with tenant_scope(ACTIVE_TENANT_ID):
+        init_db()
+        notify(f"🚀 Trading bot started (tenant={ACTIVE_TENANT_ID})")
+        if RUNTIME_CONFIG.get("MODE") == "LIVE":
+            apply_leverage_settings()
+        while bot_state["running"]:
+            try:
+                if RUNTIME_CONFIG.get("PANIC_STOP", False):
+                    time.sleep(LOOP_INTERVAL)
+                    continue
+                for symbol in RUNTIME_CONFIG.get("SYMBOLS", ["BTC/USDT"]):
+                    try:
+                        df = fetch_ohlcv_df(symbol)
+                        analysis = analyze_market(df)
+                        last_map = bot_state.setdefault("last_candle_time_by_symbol", {})
+                        if analysis["time"] == last_map.get(symbol):
+                            continue
+                        last_map[symbol] = analysis["time"]
 
-                    log = {
-                        "time": analysis["time"], "symbol": symbol, "bias": analysis["bias"], "close": analysis["close"],
-                        "rsi": analysis["rsi"], "golden_zone": analysis["golden_zone"], "result": "SKIP", "note": ""
-                    }
+                        log = {
+                            "time": analysis["time"], "symbol": symbol, "bias": analysis["bias"], "close": analysis["close"],
+                            "rsi": analysis["rsi"], "golden_zone": analysis["golden_zone"], "result": "SKIP", "note": ""
+                        }
 
-                    if analysis["golden_zone"] and analysis["quality_ok"]:
-                        ok, reason = can_enter_trade_now()
-                        if not ok:
-                            log["result"] = "BLOCKED"; log["note"] = reason
-                        else:
-                            trade = calc_trade(df, analysis)
-                            if trade:
-                                if RUNTIME_CONFIG["MODE"] == "PAPER":
-                                    log["result"] = "ENTRY_PAPER"
-                                    log["note"] = f"entry={trade['entry']} sl={trade['sl']} tp1={trade['tp1']} tp2={trade['tp2']}"
-                                    touch_cooldown()
-                                else:
-                                    st = send_live_order(symbol, analysis["bias"], trade)
-                                    log["result"] = "ENTRY_LIVE" if st == "live_sent" else "BLOCKED"
-                                    log["note"] = st
-                                    if st == "live_sent":
+                        if analysis["golden_zone"] and analysis["quality_ok"]:
+                            ok, reason = can_enter_trade_now()
+                            if not ok:
+                                log["result"] = "BLOCKED"; log["note"] = reason
+                            else:
+                                trade = calc_trade(df, analysis)
+                                if trade:
+                                    if RUNTIME_CONFIG["MODE"] == "PAPER":
+                                        log["result"] = "ENTRY_PAPER"
+                                        log["note"] = f"entry={trade['entry']} sl={trade['sl']} tp1={trade['tp1']} tp2={trade['tp2']}"
                                         touch_cooldown()
-                    elif analysis["golden_zone"] and not analysis["quality_ok"]:
-                        log["result"] = "BLOCKED"
-                        log["note"] = f"quality_filter adx={analysis['adx']:.1f} atr%={analysis['atr_pct']:.2f}"
+                                    else:
+                                        st = send_live_order(symbol, analysis["bias"], trade)
+                                        log["result"] = "ENTRY_LIVE" if st == "live_sent" else "BLOCKED"
+                                        log["note"] = st
+                                        if st == "live_sent":
+                                            touch_cooldown()
+                        elif analysis["golden_zone"] and not analysis["quality_ok"]:
+                            log["result"] = "BLOCKED"
+                            log["note"] = f"quality_filter adx={analysis['adx']:.1f} atr%={analysis['atr_pct']:.2f}"
 
-                    log_to_csv(log)
-                    log_trade(log)
-                    notify_trade(symbol, log.get("result", ""), log.get("note", ""))
-                except Exception as e_sym:
-                    if RUNTIME_CONFIG.get("ALERT_ON_ERROR", True):
-                        notify(f"⚠️ {symbol} error: {e_sym}")
+                        log_to_csv(log)
+                        log_trade(log)
+                        notify_trade(symbol, log.get("result", ""), log.get("note", ""))
+                    except Exception as e_sym:
+                        if RUNTIME_CONFIG.get("ALERT_ON_ERROR", True):
+                            notify(f"⚠️ {symbol} error: {e_sym}")
 
-        except Exception as e:
-            if RUNTIME_CONFIG.get("ALERT_ON_ERROR", True):
-                notify(f"⚠️ Engine error: {e}")
-        time.sleep(LOOP_INTERVAL)
-    notify("⏹ Trading bot stopped")
+            except Exception as e:
+                if RUNTIME_CONFIG.get("ALERT_ON_ERROR", True):
+                    notify(f"⚠️ Engine error: {e}")
+            time.sleep(LOOP_INTERVAL)
+        notify("⏹ Trading bot stopped")

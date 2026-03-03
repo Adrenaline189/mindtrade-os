@@ -1,14 +1,19 @@
 import sqlite3
 from datetime import datetime
-from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parents[1]
-DB_PATH = BASE_DIR / "data" / "trading_bot.db"
+from bot.paths import get_tenant_paths
+from bot.tenant_context import get_current_tenant
 
 
-def init_db():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(DB_PATH) as conn:
+def _db_path(tenant_id: str | None = None):
+    tid = tenant_id or get_current_tenant()
+    return get_tenant_paths(tid)["sqlite_db"]
+
+
+def init_db(tenant_id: str | None = None):
+    db_path = _db_path(tenant_id)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS trade_logs (
@@ -25,15 +30,15 @@ def init_db():
             )
             """
         )
-        # migration (older db)
         cols = [r[1] for r in conn.execute("PRAGMA table_info(trade_logs)").fetchall()]
         if "symbol" not in cols:
             conn.execute("ALTER TABLE trade_logs ADD COLUMN symbol TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_logs_ts ON trade_logs(ts)")
 
 
-def log_trade(row: dict):
-    with sqlite3.connect(DB_PATH) as conn:
+def log_trade(row: dict, tenant_id: str | None = None):
+    db_path = _db_path(tenant_id)
+    with sqlite3.connect(db_path) as conn:
         conn.execute(
             """
             INSERT INTO trade_logs (ts, candle_time, symbol, bias, close, rsi, golden_zone, result, note)
@@ -53,9 +58,10 @@ def log_trade(row: dict):
         )
 
 
-def count_entries_today_utc() -> int:
+def count_entries_today_utc(tenant_id: str | None = None) -> int:
+    db_path = _db_path(tenant_id)
     today = datetime.utcnow().strftime("%Y-%m-%d")
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(db_path) as conn:
         cur = conn.execute(
             "SELECT COUNT(*) FROM trade_logs WHERE result IN ('ENTRY','ENTRY_PAPER','ENTRY_LIVE') AND substr(ts,1,10)=?",
             (today,),

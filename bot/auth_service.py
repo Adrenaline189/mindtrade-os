@@ -3,6 +3,8 @@ import hashlib
 from datetime import datetime
 from pathlib import Path
 
+from bot.tenant_store import get_tenant_for_user
+
 ROOT = Path(__file__).resolve().parents[1]
 DB = ROOT / 'licenses' / 'users.json'
 
@@ -36,9 +38,26 @@ def create_user(email: str, password: str) -> tuple[bool, str]:
         'password_hash': _hash_password(password),
         'created_at': datetime.utcnow().isoformat(),
         'active': True,
+        'tenant_id': get_tenant_for_user(email),
     })
     _save(db)
     return True, 'ok'
+
+
+def resolve_user_tenant(email: str) -> str:
+    email = (email or '').strip().lower()
+    if not email:
+        return get_tenant_for_user('')
+    db = _load()
+    target = next((u for u in db.get('users', []) if u.get('email') == email), None)
+    tenant_id = (target or {}).get('tenant_id')
+    if tenant_id:
+        return tenant_id
+    tenant_id = get_tenant_for_user(email)
+    if target is not None:
+        target['tenant_id'] = tenant_id
+        _save(db)
+    return tenant_id
 
 
 def verify_user(email: str, password: str) -> bool:
@@ -47,4 +66,8 @@ def verify_user(email: str, password: str) -> bool:
     target = next((u for u in db.get('users', []) if u.get('email') == email), None)
     if not target or target.get('active') is False:
         return False
-    return target.get('password_hash') == _hash_password(password)
+    ok = target.get('password_hash') == _hash_password(password)
+    if ok and not target.get('tenant_id'):
+        target['tenant_id'] = get_tenant_for_user(email)
+        _save(db)
+    return ok

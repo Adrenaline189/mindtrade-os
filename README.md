@@ -34,6 +34,20 @@ Open: http://127.0.0.1:8000
 curl http://127.0.0.1:8000/health
 ```
 
+## Multi-tenant (Phase 1)
+
+This project now supports tenant-scoped storage per logged-in user.
+
+- Mapping: `licenses/tenants.json`
+- Data root: `data/tenants/<tenant_id>/...`
+- Migration script for legacy global files:
+
+```bash
+./venv/bin/python scripts/migrate_to_tenants.py
+```
+
+Architecture notes and limitations: `docs/multi-tenant-phase1.md`
+
 ## Bot service scripts
 
 ```bash
