@@ -285,8 +285,19 @@ def update_config(
                     lev_map[sym] = lv_int
             except Exception:
                 continue
+    # keep leverage map aligned with selected symbols
+    valid_set = set(RUNTIME_CONFIG.get("SYMBOLS", []))
     if lev_map:
-        RUNTIME_CONFIG["LEVERAGE_BY_SYMBOL"] = lev_map
+        RUNTIME_CONFIG["LEVERAGE_BY_SYMBOL"] = {k: v for k, v in lev_map.items() if k in valid_set}
+    else:
+        # if user leaves field empty, clear per-symbol override and use default leverage
+        RUNTIME_CONFIG["LEVERAGE_BY_SYMBOL"] = {}
+
+    # always prune stale symbol overrides
+    if RUNTIME_CONFIG.get("LEVERAGE_BY_SYMBOL"):
+        RUNTIME_CONFIG["LEVERAGE_BY_SYMBOL"] = {
+            k: v for k, v in RUNTIME_CONFIG["LEVERAGE_BY_SYMBOL"].items() if k in valid_set
+        }
 
     return RedirectResponse("/", status_code=303)
 
@@ -399,7 +410,7 @@ def admin_send_token(token: str = Form(...), target_chat_id: str = Form(...)):
     import json
 
     # load env quickly
-    env_path = Path('/Users/adrenaline/trading-bot/.env')
+    env_path = BASE_DIR / '.env'
     vals = {}
     if env_path.exists():
         for line in env_path.read_text().splitlines():
@@ -411,7 +422,7 @@ def admin_send_token(token: str = Form(...), target_chat_id: str = Form(...)):
         return RedirectResponse('/admin/licenses?err=no_tg', status_code=303)
 
     # find license
-    data_path = Path('/Users/adrenaline/trading-bot/licenses/licenses.json')
+    data_path = BASE_DIR / 'licenses' / 'licenses.json'
     if not data_path.exists():
         return RedirectResponse('/admin/licenses?err=no_db', status_code=303)
     db = json.loads(data_path.read_text())
@@ -435,7 +446,7 @@ def profile_page(request: Request, token: str = ''):
     import json
     from datetime import datetime, timezone
 
-    db_path = Path('/Users/adrenaline/trading-bot/licenses/licenses.json')
+    db_path = BASE_DIR / 'licenses' / 'licenses.json'
     rec = None
     days_left = None
     expiry_state = 'unknown'
