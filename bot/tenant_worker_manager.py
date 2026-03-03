@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from bot.license_service import license_state_for_email
 from bot.state import create_bot_state
 from bot.tenant_context import default_tenant_id
-from bot.tenant_store import get_primary_email_for_tenant
+from bot.tenant_store import get_primary_email_for_tenant, list_tenants
 
 
 @dataclass
@@ -29,6 +29,7 @@ class TenantWorkerManager:
     - stop timeout observability (`stop_timed_out` marker)
     - per-tenant isolation lock (no global lock serialization)
     - crash containment metadata per worker
+    - periodic reconciler to enforce license gates for running workers
     """
 
     def __init__(self):
@@ -36,6 +37,15 @@ class TenantWorkerManager:
         self._tenant_locks: dict[str, threading.Lock] = {}
         self._workers: dict[str, TenantWorker] = {}
         self._runner = None
+
+        self._reconciler_interval_sec = 10.0
+        self._reconciler_stop = threading.Event()
+        self._reconciler_thread = threading.Thread(
+            target=self._reconcile_loop,
+            daemon=True,
+            name="tenant-worker-reconciler",
+        )
+        self._reconciler_thread.start()
 
     def _normalize_tenant(self, tenant_id: str | None) -> str:
         return (tenant_id or default_tenant_id()).strip() or default_tenant_id()
@@ -58,6 +68,49 @@ class TenantWorkerManager:
                 stale_ids.append(tid)
         for tid in stale_ids:
             self._workers.pop(tid, None)
+
+    def _should_force_stop(self, tenant_id: str) -> tuple[bool, str]:
+        ok, reason = self._license_gate(tenant_id)
+        if ok:
+            return False, reason
+        enforced_reasons = {
+            "suspended",
+            "expired",
+            "license_not_found",
+            "invalid_expiry",
+            "tenant_email_not_found",
+        }
+        return reason in enforced_reasons, reason
+
+    def _reconcile_once(self):
+        with self._lock:
+            self._cleanup_stale_locked()
+            running_ids = [tid for tid, w in self._workers.items() if w.thread.is_alive() and not w.stop_event.is_set()]
+
+        known_tenants = {t.get("tenant_id") for t in list_tenants() if t.get("tenant_id")}
+        known_tenants.update(running_ids)
+
+        for tid in sorted(known_tenants):
+            should_stop, reason = self._should_force_stop(tid)
+            if not should_stop:
+                continue
+            with self._lock:
+                worker = self._workers.get(tid)
+                if worker and worker.thread.is_alive() and not worker.stop_event.is_set():
+                    worker.state["license_ok"] = False
+                    worker.state["license_reason"] = reason
+                    worker.state["enforcement_reason"] = f"license_gate:{reason}"
+                    worker.state["running"] = False
+                    worker.stop_event.set()
+
+    def _reconcile_loop(self):
+        while not self._reconciler_stop.is_set():
+            try:
+                self._reconcile_once()
+            except Exception:
+                pass
+            if self._reconciler_stop.wait(self._reconciler_interval_sec):
+                break
 
     def _tenant_lock(self, tenant_id: str) -> threading.Lock:
         with self._lock:
@@ -108,6 +161,7 @@ class TenantWorkerManager:
             state["last_error"] = ""
             state["crashed"] = False
             state["last_tick_at"] = 0.0
+            state["enforcement_reason"] = ""
             stop_event = threading.Event()
             start_nonce = time.time()
             if self._runner is None:
@@ -189,6 +243,7 @@ class TenantWorkerManager:
                     "stop_timed_out": False,
                     "last_stop_latency_sec": 0.0,
                     "crashed": False,
+                    "enforcement_reason": "",
                     "last_tick_at": 0.0,
                     "tick_age_sec": None,
                 }
@@ -210,6 +265,7 @@ class TenantWorkerManager:
                 "last_stop_latency_sec": float(worker.state.get("last_stop_latency_sec", 0.0) or 0.0),
                 "last_error": worker.state.get("last_error", ""),
                 "crashed": bool(worker.state.get("crashed", False)),
+                "enforcement_reason": worker.state.get("enforcement_reason", ""),
                 "ticks": int(worker.state.get("ticks", 0)),
                 "last_tick_at": last_tick_at,
                 "tick_age_sec": tick_age_sec,
