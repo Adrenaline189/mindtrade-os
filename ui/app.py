@@ -202,15 +202,16 @@ def dashboard(request: Request):
 def health():
     lic_ok, lic_reason = license_ok()
     workers = engine_manager.list_status()
+    cfg = tenant_services.get_runtime_config(default_tenant_id())
     return {
         'ok': True,
         'running': any(w.get('running') for w in workers),
         'active_tenant_id': engine_manager.active_tenant_id,
         'workers': workers,
-        'mode': cfg['MODE'],
-        'allow_live': RUNTIME_CONFIG['ALLOW_LIVE_ORDERS'],
-        'panic_stop': RUNTIME_CONFIG['PANIC_STOP'],
-        'symbols': RUNTIME_CONFIG.get('SYMBOLS', []),
+        'mode': cfg.get('MODE', 'LIVE'),
+        'allow_live': bool(cfg.get('ALLOW_LIVE_ORDERS', True)),
+        'panic_stop': bool(cfg.get('PANIC_STOP', False)),
+        'symbols': cfg.get('SYMBOLS', []),
         'license_ok': lic_ok,
         'license_reason': lic_reason,
     }
@@ -236,6 +237,12 @@ def admin_workers_ui(request: Request):
             'running': st.get('running', False),
             'license_ok': st.get('license_ok', True),
             'license_reason': st.get('license_reason', ''),
+            'stop_timed_out': st.get('stop_timed_out', False),
+            'last_stop_latency_sec': st.get('last_stop_latency_sec', 0.0),
+            'last_error': st.get('last_error', ''),
+            'crashed': st.get('crashed', False),
+            'tick_age_sec': st.get('tick_age_sec'),
+            'ticks': st.get('ticks', 0),
         })
     rows.sort(key=lambda x: x['tenant_id'])
     return templates.TemplateResponse('workers_admin.html', {'request': request, 'rows': rows})
@@ -249,7 +256,7 @@ def admin_workers_start(tenant_id: str = Form(...)):
 
 
 @app.post('/admin/workers/stop')
-def admin_workers_stop(tenant_id: str = Form(...), timeout_sec: float = Form(10.0)):
+def admin_workers_stop(tenant_id: str = Form(...), timeout_sec: float = Form(15.0)):
     stopped = engine_manager.stop(tenant_id, timeout_sec=timeout_sec)
     return JSONResponse({'ok': True, 'stopped': bool(stopped), 'status': engine_manager.status(tenant_id)})
 

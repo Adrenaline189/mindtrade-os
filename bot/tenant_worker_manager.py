@@ -1,6 +1,7 @@
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from bot.license_service import license_state_for_email
 from bot.state import create_bot_state
@@ -101,8 +102,12 @@ class TenantWorkerManager:
             state["already_running"] = False
             state["stop_timed_out"] = False
             state["stop_timeout_sec"] = 0
+            state["last_stop_latency_sec"] = 0.0
+            state["stop_requested_at"] = 0.0
+            state["last_stopped_at"] = 0.0
             state["last_error"] = ""
             state["crashed"] = False
+            state["last_tick_at"] = 0.0
             stop_event = threading.Event()
             start_nonce = time.time()
             if self._runner is None:
@@ -130,30 +135,35 @@ class TenantWorkerManager:
             thread.start()
             return True
 
-    def stop(self, tenant_id: str | None, timeout_sec: float = 10.0) -> bool:
+    def stop(self, tenant_id: str | None, timeout_sec: float = 15.0) -> bool:
         tid = self._normalize_tenant(tenant_id)
         worker = None
+        started_wait = time.monotonic()
         with self._lock:
             self._cleanup_stale_locked()
             worker = self._workers.get(tid)
             if not worker:
                 return False
             worker.state["running"] = False
-            worker.state["stop_timeout_sec"] = timeout_sec
+            worker.state["stop_timeout_sec"] = float(timeout_sec)
+            worker.state["stop_requested_at"] = time.time()
             worker.stop_event.set()
 
         worker.thread.join(timeout=max(0.1, float(timeout_sec)))
         timed_out = worker.thread.is_alive()
+        stop_latency = max(0.0, time.monotonic() - started_wait)
 
         with self._lock:
             fresh = self._workers.get(tid)
             if fresh and fresh.start_nonce == worker.start_nonce:
                 fresh.state["stop_timed_out"] = bool(timed_out)
+                fresh.state["last_stop_latency_sec"] = stop_latency
+                fresh.state["last_stopped_at"] = time.time()
                 if not timed_out:
                     self._workers.pop(tid, None)
         return True
 
-    def stop_all(self, timeout_sec: float = 10.0) -> int:
+    def stop_all(self, timeout_sec: float = 15.0) -> int:
         with self._lock:
             ids = list(self._workers.keys())
         count = 0
@@ -175,22 +185,34 @@ class TenantWorkerManager:
                     "exists": False,
                     "license_ok": gate_ok,
                     "license_reason": gate_reason,
+                    "last_error": "",
+                    "stop_timed_out": False,
+                    "last_stop_latency_sec": 0.0,
+                    "crashed": False,
+                    "last_tick_at": 0.0,
+                    "tick_age_sec": None,
                 }
             alive = worker.thread.is_alive()
+            last_tick_at = float(worker.state.get("last_tick_at", 0.0) or 0.0)
+            tick_age_sec = max(0.0, time.time() - last_tick_at) if last_tick_at > 0 else None
             return {
                 "tenant_id": tid,
                 "running": alive and not worker.stop_event.is_set(),
                 "exists": True,
                 "thread_name": worker.thread.name,
                 "started_at": worker.started_at,
+                "started_at_iso": datetime.fromtimestamp(worker.started_at, timezone.utc).isoformat(),
                 "license_ok": bool(worker.state.get('license_ok', gate_ok)),
                 "license_reason": worker.state.get('license_reason', gate_reason),
                 "already_running": bool(worker.state.get("already_running", False)),
                 "stop_timed_out": bool(worker.state.get("stop_timed_out", False)),
                 "stop_timeout_sec": float(worker.state.get("stop_timeout_sec", 0)),
+                "last_stop_latency_sec": float(worker.state.get("last_stop_latency_sec", 0.0) or 0.0),
                 "last_error": worker.state.get("last_error", ""),
                 "crashed": bool(worker.state.get("crashed", False)),
                 "ticks": int(worker.state.get("ticks", 0)),
+                "last_tick_at": last_tick_at,
+                "tick_age_sec": tick_age_sec,
             }
 
     def list_status(self) -> list[dict]:

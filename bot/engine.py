@@ -407,6 +407,8 @@ def run_engine_for_tenant(tenant_id: str, stop_event=None, state=None, isolation
                     pass
                 else:
                     for symbol in ctx.runtime_config.get("SYMBOLS", ["BTC/USDT"]):
+                        if stop_event is not None and stop_event.is_set():
+                            break
                         try:
                             df = fetch_ohlcv_df(symbol, ctx=ctx)
                             analysis = analyze_market(df, ctx=ctx)
@@ -450,10 +452,17 @@ def run_engine_for_tenant(tenant_id: str, stop_event=None, state=None, isolation
             finally:
                 if isolation_lock is not None:
                     isolation_lock.release()
+            state["last_tick_at"] = time.time()
+            state["ticks"] = int(state.get("ticks", 0)) + 1
         except Exception as e:
+            state["last_error"] = str(e)
             if ctx.runtime_config.get("ALERT_ON_ERROR", True):
                 notify(f"⚠️ Engine error: {e}", ctx=ctx)
-        time.sleep(LOOP_INTERVAL)
+        if stop_event is not None:
+            if stop_event.wait(LOOP_INTERVAL):
+                break
+        else:
+            time.sleep(LOOP_INTERVAL)
 
     notify(f"⏹ Trading bot stopped (tenant={ctx.tenant_id})", ctx=ctx)
 

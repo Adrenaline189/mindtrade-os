@@ -22,6 +22,7 @@
         <th>Owner Email(s)</th>
         <th>Worker</th>
         <th>License</th>
+        <th>Health</th>
         <th>Action</th>
       </tr>
     </thead>
@@ -32,6 +33,14 @@
         <td>{{ ', '.join(r.emails) if r.emails else '-' }}</td>
         <td>{% if r.running %}<span class="ok">running</span>{% else %}<span class="bad">stopped</span>{% endif %}</td>
         <td>{% if r.license_ok %}<span class="ok">ok</span>{% else %}<span class="bad">{{ r.license_reason }}</span>{% endif %}</td>
+        <td>
+          <div>ticks: {{ r.ticks }}</div>
+          <div>tick age: {{ '%.1fs'|format(r.tick_age_sec) if r.tick_age_sec is not none else '-' }}</div>
+          <div>stop timeout: {% if r.stop_timed_out %}<span class="bad">yes</span>{% else %}<span class="ok">no</span>{% endif %}</div>
+          <div>stop latency: {{ '%.3fs'|format(r.last_stop_latency_sec or 0) }}</div>
+          <div>crashed: {% if r.crashed %}<span class="bad">yes</span>{% else %}<span class="ok">no</span>{% endif %}</div>
+          <div>last error: <small>{{ r.last_error or '-' }}</small></div>
+        </td>
         <td>
           <form method="post" action="/admin/workers/start">
             <input type="hidden" name="tenant_id" value="{{ r.tenant_id }}" />
