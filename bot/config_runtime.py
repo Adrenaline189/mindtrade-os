@@ -4,8 +4,8 @@ from copy import deepcopy
 RUNTIME_CONFIG = {
     "RSI_MIN": 40,
     "RSI_MAX": 60,
-    "GOLDEN_ZONE_DISTANCE": 0.5,
-    "RISK_PER_TRADE": 0.01,
+    "GOLDEN_ZONE_DISTANCE": 0.8,
+    "RISK_PER_TRADE": 0.005,
     "LEVERAGE": 5,
     "MARGIN_MODE": "cross",  # cross | isolated
     "LEVERAGE_BY_SYMBOL": {
@@ -28,7 +28,7 @@ RUNTIME_CONFIG = {
     "DAILY_LOSS_CAP_PCT": 3.0,
 
     # Entry quality filters
-    "ADX_MIN": 18.0,
+    "ADX_MIN": 14.0,
     "ATR_PCT_MIN": 0.25,
     "ATR_PCT_MAX": 3.5,
 
