@@ -1,0 +1,33 @@
+<!doctype html>
+<html><head><meta charset='utf-8'><title>Payments Admin</title>
+<style>body{font-family:Arial;background:#0b1020;color:#eef4ff;padding:20px}.card{background:#121a32;border:1px solid #2a3a68;border-radius:12px;padding:12px;margin-bottom:12px}table{width:100%;border-collapse:collapse}th,td{padding:8px;border-bottom:1px solid #2a3a68;text-align:left}input,button{padding:6px;border-radius:8px;border:1px solid #334a7d;background:#0f1530;color:#fff}</style>
+</head><body>
+<h2>💼 Payment Queue (Admin)</h2>
+<p><a href='/admin/licenses' style='color:#8ec5ff'>Go to license admin</a></p>
+<div class='card'>
+<h3>Pending / Manual Queue</h3>
+<table><thead><tr><th>Order</th><th>Email</th><th>Plan</th><th>Channel</th><th>Amount</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+{% for x in pending %}
+<tr>
+<td><code>{{x.order_id}}</code></td><td>{{x.email}}</td><td>{{x.plan}}</td><td>{{x.channel}}</td><td>{{x.amount}} {{x.currency}}</td><td>{{x.status}}</td>
+<td>
+<form method='post' action='/admin/payments/approve' style='display:inline'>
+<input type='hidden' name='order_id' value='{{x.order_id}}'><button type='submit'>Approve</button>
+</form>
+<form method='post' action='/admin/payments/reject' style='display:inline'>
+<input type='hidden' name='order_id' value='{{x.order_id}}'><input name='reason' value='manual_rejected' style='width:120px'><button type='submit'>Reject</button>
+</form>
+</td>
+</tr>
+{% endfor %}
+</tbody></table>
+</div>
+<div class='card'>
+<h3>Recent Orders</h3>
+<table><thead><tr><th>Order</th><th>Email</th><th>Status</th><th>Channel</th><th>Updated</th></tr></thead><tbody>
+{% for x in recent %}
+<tr><td><a style='color:#8ec5ff' href='/payments/status/{{x.order_id}}'><code>{{x.order_id}}</code></a></td><td>{{x.email}}</td><td>{{x.status}}</td><td>{{x.channel}}</td><td>{{x.updated_at}}</td></tr>
+{% endfor %}
+</tbody></table>
+</div>
+</body></html>

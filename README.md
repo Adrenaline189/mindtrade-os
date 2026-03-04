@@ -146,6 +146,49 @@ Open `product/site/signup.html` in browser for founder signup + payment mock flo
 This writes to `licenses/licenses.json`.
 Use generated token in customer `.env` as `LICENSE_TOKEN=...`.
 
+## Dual-channel payments (Binance Pay + PromptPay fallback)
+
+New flows:
+- Customer checkout: `/checkout`
+- Order detail/instruction: `/checkout/order/{order_id}`
+- Customer status page: `/payments/status/{order_id}`
+- Binance Pay webhook: `POST /webhook/binance-pay`
+- Binance Pay health: `GET /webhook/binance-pay/test`
+- Admin payment queue: `/admin/payments`
+
+Backwards compatibility kept:
+- Existing `POST /webhook/payment` remains active.
+- Existing license admin APIs/pages still work.
+
+### Env vars
+
+Add to `.env`:
+
+```env
+# Optional secret used to verify Binance-Pay style callbacks
+# Signature expected in header: X-Signature (hex hmac sha256 of raw body)
+BINANCE_PAY_WEBHOOK_SECRET=replace-with-strong-secret
+
+# legacy endpoint still supported
+PAYMENT_WEBHOOK_SECRET=optional-legacy-secret
+```
+
+### Example webhook payload
+
+```json
+{
+  "event_id": "evt_20260304_001",
+  "order_id": "ord_20260304153001_ab12cd34",
+  "status": "paid"
+}
+```
+
+### Payment smoke test
+
+```bash
+./venv/bin/python -m unittest tests/test_payment_flow_smoke.py -v
+```
+
 ## Windows one-click installer (beta)
 
 Files:

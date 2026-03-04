@@ -6,6 +6,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request, Header, HTTPException
 from fastapi.responses import JSONResponse, RedirectResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -13,7 +14,25 @@ from bot.config_runtime import RUNTIME_CONFIG
 from bot.engine import apply_leverage_settings
 from bot.engine_manager import engine_manager
 from bot.license import license_ok
-from bot.license_service import issue_license, list_licenses, record_payment, has_payment_event, set_license_active, delete_license, renew_license, find_licenses, list_payments_for_license
+from bot.license_service import (
+    issue_license,
+    list_licenses,
+    record_payment,
+    has_payment_event,
+    set_license_active,
+    delete_license,
+    renew_license,
+    find_licenses,
+    list_payments_for_license,
+    create_payment_order,
+    get_payment_order,
+    list_payment_orders,
+    update_payment_order_status,
+    activate_or_renew_license_by_order,
+    is_processed_event,
+    mark_processed_event,
+    verify_binancepay_signature,
+)
 from bot.auth_service import create_user, verify_user, resolve_user_tenant
 from bot.paths import get_tenant_paths
 from bot.runtime_store import load_runtime_config, save_runtime_config
@@ -40,6 +59,7 @@ load_dotenv()
 app = FastAPI(title="MindTrade OS")
 app.add_middleware(SessionMiddleware, secret_key=__import__('os').getenv('SESSION_SECRET', 'mindtrade-dev-secret'))
 BASE_DIR = Path(__file__).resolve().parents[1]
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "ui" / "static")), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "ui" / "templates"))
 # Load default tenant config at boot (request handlers switch by tenant context)
 load_runtime_config(default_tenant_id())
@@ -59,6 +79,16 @@ def startup_default_worker():
         engine_manager.start(default_tenant_id())
     except Exception:
         pass
+
+
+PLAN_PRICING = {
+    'starter': {'amount': 29.0, 'currency': 'USDT', 'days': 30},
+    'pro': {'amount': 79.0, 'currency': 'USDT', 'days': 30},
+}
+
+
+def _current_email(request: Request) -> str:
+    return (request.session.get('user_email') or '').strip().lower() if hasattr(request, 'session') else ''
 
 
 def current_tenant_id(request: Request | None = None) -> str:
@@ -787,6 +817,137 @@ def landing_page(request: Request):
     })
 
 
+@app.get('/checkout')
+def checkout_page(request: Request, plan: str = 'starter'):
+    email = _current_email(request)
+    if not email:
+        return RedirectResponse('/auth/login?err=login_required', status_code=303)
+    plan_norm = (plan or 'starter').strip().lower()
+    if plan_norm not in PLAN_PRICING:
+        plan_norm = 'starter'
+    pricing = PLAN_PRICING[plan_norm]
+    return templates.TemplateResponse('checkout.html', {
+        'request': request,
+        'email': email,
+        'plan': plan_norm,
+        'pricing': pricing,
+        'channels': ['binance_pay', 'promptpay'],
+    })
+
+
+@app.post('/checkout/create-order')
+def checkout_create_order(request: Request, plan: str = Form('starter'), channel: str = Form('binance_pay')):
+    email = _current_email(request)
+    if not email:
+        return RedirectResponse('/auth/login?err=login_required', status_code=303)
+    plan_norm = (plan or 'starter').strip().lower()
+    if plan_norm not in PLAN_PRICING:
+        plan_norm = 'starter'
+    channel_norm = (channel or 'binance_pay').strip().lower()
+    if channel_norm not in {'binance_pay', 'promptpay'}:
+        channel_norm = 'binance_pay'
+    pricing = PLAN_PRICING[plan_norm]
+    order = create_payment_order(email=email, plan=plan_norm, amount=pricing['amount'], channel=channel_norm, currency=pricing['currency'])
+    return RedirectResponse(f"/checkout/order/{order['order_id']}", status_code=303)
+
+
+@app.get('/checkout/order/{order_id}')
+def checkout_order_page(request: Request, order_id: str):
+    order = get_payment_order(order_id)
+    email = _current_email(request)
+    if not order:
+        raise HTTPException(status_code=404, detail='order_not_found')
+    if email and (order.get('email') or '').strip().lower() != email:
+        raise HTTPException(status_code=403, detail='forbidden')
+
+    channel = (order.get('channel') or '').lower()
+    instruction = 'Scan Binance Pay QR and complete payment.' if channel == 'binance_pay' else 'Transfer via PromptPay and send slip to admin for manual confirmation.'
+    qr_placeholder = f"{channel.upper()} QR PLACEHOLDER"
+    return templates.TemplateResponse('checkout_order.html', {
+        'request': request,
+        'order': order,
+        'instruction': instruction,
+        'qr_placeholder': qr_placeholder,
+    })
+
+
+@app.get('/payments/status/{order_id}')
+def payment_status_page(request: Request, order_id: str):
+    order = get_payment_order(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail='order_not_found')
+    lic = None
+    token = (order.get('activated_license_token') or '').strip()
+    if token:
+        rows = list_licenses(5000)
+        lic = next((x for x in rows if x.get('license_token') == token), None)
+    return templates.TemplateResponse('payment_status.html', {'request': request, 'order': order, 'license': lic})
+
+
+@app.get('/admin/payments')
+def admin_payments_page(request: Request):
+    pending = list_payment_orders(status='pending', limit=500)
+    recent = list_payment_orders(limit=100)
+    return templates.TemplateResponse('payments_admin.html', {'request': request, 'pending': pending, 'recent': recent})
+
+
+@app.post('/admin/payments/approve')
+def admin_payment_approve(order_id: str = Form(...)):
+    order = get_payment_order(order_id)
+    if not order:
+        return RedirectResponse('/admin/payments?err=not_found', status_code=303)
+    result = activate_or_renew_license_by_order(order_id, source='admin', idempotency_key=f'admin_approve:{order_id}')
+    if not result.get('ok'):
+        return RedirectResponse('/admin/payments?err=approve_failed', status_code=303)
+    return RedirectResponse(f"/payments/status/{order_id}", status_code=303)
+
+
+@app.post('/admin/payments/reject')
+def admin_payment_reject(order_id: str = Form(...), reason: str = Form('manual_rejected')):
+    update_payment_order_status(order_id, 'failed', reason=reason)
+    return RedirectResponse('/admin/payments', status_code=303)
+
+
+@app.post('/webhook/binance-pay')
+async def webhook_binance_pay(request: Request, x_signature: str | None = Header(default=None)):
+    payload_bytes = await request.body()
+    secret = __import__('os').getenv('BINANCE_PAY_WEBHOOK_SECRET', '').strip()
+    if not verify_binancepay_signature(payload_bytes, x_signature, secret):
+        raise HTTPException(status_code=401, detail='invalid_signature')
+
+    import json
+    payload = json.loads(payload_bytes.decode() or '{}')
+    event_id = str(payload.get('event_id') or payload.get('bizId') or '')
+    if not event_id:
+        raise HTTPException(status_code=400, detail='missing_event_id')
+
+    if is_processed_event(event_id):
+        return JSONResponse({'ok': True, 'duplicate': True})
+
+    order_id = str(payload.get('order_id') or payload.get('merchantTradeNo') or '')
+    if not order_id:
+        raise HTTPException(status_code=400, detail='missing_order_id')
+
+    status = str(payload.get('status') or payload.get('bizStatus') or '').strip().lower()
+    if status in {'paid', 'success', 'succeeded'}:
+        out = activate_or_renew_license_by_order(order_id, source='binance_webhook', idempotency_key=f'webhook:{event_id}')
+        if not out.get('ok'):
+            raise HTTPException(status_code=404, detail=out.get('error', 'activation_failed'))
+    elif status in {'failed', 'expired', 'closed'}:
+        update_payment_order_status(order_id, 'failed', reason=status, meta={'event_id': event_id})
+    else:
+        update_payment_order_status(order_id, 'pending', meta={'event_id': event_id, 'status': status})
+
+    mark_processed_event(event_id, source='binance_webhook')
+    record_payment({'event_id': event_id, 'order_id': order_id, 'status': status, 'payload': payload, 'source': 'binance_webhook'})
+    return JSONResponse({'ok': True, 'order_id': order_id, 'status': status})
+
+
+@app.get('/webhook/binance-pay/test')
+def webhook_binance_pay_test():
+    return PlainTextResponse('binance pay webhook ready')
+
+
 @app.get('/auth/login')
 def auth_login_page(request: Request, err: str = ''):
     return templates.TemplateResponse('login.html', {'request': request, 'err': err})
@@ -818,7 +979,7 @@ def auth_signup(request: Request, email: str = Form(...), password: str = Form(.
     try:
         exists = any((x.get('email') or '').strip().lower() == email_norm for x in list_licenses(5000))
         if not exists:
-            issue_license(email=email_norm, plan='starter_trial', days=7, max_devices=1)
+            issue_license(email=email_norm, plan='pro_trial', days=7, max_devices=2)
     except Exception:
         pass
 
@@ -926,3 +1087,21 @@ def settings_api_test(request: Request):
         return JSONResponse({'ok': True, 'usdt_total': usdt})
     except Exception as e:
         return JSONResponse({'ok': False, 'error': str(e)[:180]})
+
+
+@app.get('/proof')
+def performance_proof(request: Request):
+    tenant_id = current_tenant_id(request)
+    m = tenant_metrics(tenant_id)
+    perf = api_performance(request)
+    perf_json = perf.body.decode() if hasattr(perf, 'body') else '{}'
+    import json
+    p = json.loads(perf_json)
+    return templates.TemplateResponse('performance_proof.html', {
+        'request': request,
+        'tenant_id': tenant_id,
+        'summary': m.get('summary', {}),
+        'perf': p,
+        'open_positions': m.get('open_positions_count', 0),
+        'exposure': m.get('exposure_abs_upnl', 0),
+    })

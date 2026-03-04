@@ -1,0 +1,19 @@
+<!doctype html>
+<html><head><meta charset='utf-8'><title>Checkout</title>
+<style>body{font-family:Arial;background:#0b1020;color:#eef4ff;padding:20px}.card{max-width:720px;background:#121a32;border:1px solid #2a3a68;border-radius:12px;padding:16px}select,button{padding:8px;border-radius:8px;border:1px solid #334a7d;background:#0f1530;color:#fff}a{color:#8ec5ff}</style>
+</head><body>
+<h2>💳 Checkout</h2>
+<div class='card'>
+<p>Email: <b>{{ email }}</b></p>
+<p>Plan: <b>{{ plan }}</b> | Amount: <b>{{ pricing.amount }} {{ pricing.currency }}</b></p>
+<form method='post' action='/checkout/create-order'>
+  <input type='hidden' name='plan' value='{{ plan }}'>
+  Payment channel:
+  <select name='channel'>
+    {% for c in channels %}<option value='{{ c }}'>{{ c }}</option>{% endfor %}
+  </select>
+  <button type='submit'>Create order</button>
+</form>
+<p><a href='/profile'>Back to profile</a></p>
+</div>
+</body></html>
