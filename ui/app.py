@@ -2,6 +2,7 @@ import csv
 import re
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request, Header, HTTPException
@@ -1005,6 +1006,141 @@ def setup_page(request: Request):
 BOT_ONLY_SCOPE_MSG = "ขออภัยค่ะ ระบบนี้ตอบเฉพาะการใช้งาน MindTrade OS และบอทเทรดเท่านั้นค่ะ"
 
 
+def _run_api_test_for_tenant(email: str, tenant_id: str) -> dict[str, Any]:
+    import ccxt
+
+    k, sec = get_user_api(email, tenant_id=tenant_id)
+    if not k or not sec:
+        return {'ok': False, 'error': 'no_api_saved'}
+    try:
+        ex = ccxt.binance({'apiKey': k, 'secret': sec, 'enableRateLimit': True, 'options': {'defaultType': 'future'}})
+        b = ex.fetch_balance()
+        usdt = float((b.get('USDT') or {}).get('total') or 0)
+        return {'ok': True, 'usdt_total': usdt}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)[:180]}
+
+
+def _diagnose_tenant(tenant_id: str, email: str = '') -> dict[str, Any]:
+    data = tenant_metrics(tenant_id)
+    summary = data.get('summary', {})
+    blocked_reasons = data.get('blocked_reasons', {}) or {}
+    worker = engine_manager.status(tenant_id)
+    issues: list[dict[str, Any]] = []
+
+    if not worker.get('running'):
+        issues.append({
+            'code': 'worker_stopped',
+            'severity': 'high',
+            'title': 'Worker หยุดอยู่',
+            'why': 'ไม่สามารถเข้าออเดอร์ใหม่ได้เมื่อ worker ไม่ทำงาน',
+            'playbook': [
+                'กดปุ่ม Check Worker เพื่อเช็กสถานะล่าสุด',
+                'ถ้ายังหยุดอยู่ ให้กด Start Worker',
+                'ถ้า start ไม่ได้ ให้ตรวจสอบ license และ API key ในหน้า Profile',
+            ],
+        })
+
+    if not worker.get('license_ok', True):
+        reason = worker.get('license_reason') or 'unknown'
+        issues.append({
+            'code': 'license_blocked',
+            'severity': 'high',
+            'title': 'License ถูกบล็อก',
+            'why': f"license gate ปฏิเสธการรัน ({_license_reason_message(reason)})",
+            'playbook': [
+                'ไปที่หน้า Profile เพื่อตรวจวันหมดอายุ/สถานะแพ็กเกจ',
+                'ถ้าหมดอายุ ให้ต่ออายุหรือแจ้งแอดมินอนุมัติ',
+                'หลังแก้ไขแล้ว ให้กลับมากด Diagnose อีกครั้ง',
+            ],
+        })
+
+    entries = int(summary.get('entries') or 0)
+    blocked = int(summary.get('blocked') or 0)
+    skips = int(summary.get('skips') or 0)
+
+    if entries == 0 and (blocked > 0 or skips > 10):
+        top_reason = '-'
+        if blocked_reasons:
+            top_reason = max(blocked_reasons, key=lambda k: blocked_reasons[k])
+        issues.append({
+            'code': 'no_entries_filters',
+            'severity': 'medium',
+            'title': 'ยังไม่มีจังหวะเข้าไม้',
+            'why': f'ระบบถูกกรองสัญญาณหรือถูกบล็อกบ่อย (เหตุผลหลัก: {top_reason})',
+            'playbook': [
+                'ตรวจค่า cooldown และเงื่อนไข entry filter ว่าเข้มเกินไปไหม',
+                'ลดจำนวน symbol ชั่วคราวเพื่อโฟกัสเหรียญหลักก่อน',
+                'ติดตามผล 30-60 นาทีแล้วกด Diagnose ซ้ำ',
+            ],
+        })
+
+    margin_blocked = sum(v for k, v in blocked_reasons.items() if 'margin' in str(k).lower() or 'insufficient' in str(k).lower())
+    if margin_blocked > 0:
+        issues.append({
+            'code': 'margin_insufficient',
+            'severity': 'high',
+            'title': 'Margin ไม่พอ',
+            'why': f'พบสัญญาณ blocked เพราะ margin ไม่พอ {margin_blocked} ครั้ง',
+            'playbook': [
+                'ลด risk per trade หรือ leverage ให้ต่ำลงก่อน',
+                'เพิ่มเงิน USDT ใน Futures wallet',
+                'ลดจำนวน position พร้อมกัน แล้วทดสอบใหม่',
+            ],
+        })
+
+    if email:
+        api_test = _run_api_test_for_tenant(email, tenant_id)
+        if not api_test.get('ok'):
+            issues.append({
+                'code': 'api_failure',
+                'severity': 'high',
+                'title': 'API เชื่อมต่อไม่ผ่าน',
+                'why': f"ทดสอบ API ไม่สำเร็จ: {api_test.get('error', 'unknown')}",
+                'playbook': [
+                    'เช็ก API key/secret ว่ากรอกครบและถูกต้อง',
+                    'เปิดสิทธิ์ Reading + Futures และปิด Withdraw',
+                    'ถ้าใช้ IP whitelist ให้เพิ่ม IP เซิร์ฟเวอร์ 185.230.138.51',
+                ],
+            })
+    else:
+        api_test = {'ok': False, 'error': 'login_required'}
+
+    ok = len(issues) == 0
+    if ok:
+        issues.append({
+            'code': 'healthy',
+            'severity': 'info',
+            'title': 'ระบบโดยรวมปกติ',
+            'why': 'Worker ทำงานและไม่พบสัญญาณผิดปกติหลัก',
+            'playbook': [
+                'เฝ้าดู blocked reasons เป็นระยะ',
+                'ทดสอบ API ก่อนเริ่มรอบเทรดสำคัญ',
+            ],
+        })
+
+    return {
+        'ok': ok,
+        'tenant_id': tenant_id,
+        'worker': worker,
+        'summary': summary,
+        'blocked_reasons': blocked_reasons,
+        'api_test': api_test,
+        'issues': issues,
+    }
+
+
+def _format_diagnosis_answer(diag: dict[str, Any]) -> str:
+    issues = diag.get('issues', []) or []
+    lines = [f"ผลวิเคราะห์ Tenant: {diag.get('tenant_id')}"]
+    for idx, issue in enumerate(issues, start=1):
+        lines.append(f"\n{idx}) {issue.get('title')} [{issue.get('severity')}]")
+        lines.append(f"- สาเหตุ: {issue.get('why')}")
+        for step in issue.get('playbook', []):
+            lines.append(f"- แนะนำ: {step}")
+    return '\n'.join(lines)
+
+
 def _help_answer(q: str) -> str:
     text = (q or '').strip().lower()
     if not text:
@@ -1036,10 +1172,84 @@ def help_chat_page(request: Request):
 
 
 @app.post('/api/help-chat')
-def api_help_chat(payload: dict):
+def api_help_chat(request: Request, payload: dict):
     q = str(payload.get('question') or '')
+    action = str(payload.get('action') or '').strip().lower()
+
+    if action in {'diagnose', 'diagnose_now'}:
+        email = _current_email(request)
+        tenant_id = current_tenant_id(request)
+        diag = _diagnose_tenant(tenant_id, email)
+        return JSONResponse({'ok': True, 'mode': 'diagnosis', 'answer': _format_diagnosis_answer(diag), 'diagnosis': diag})
+
     ans = _help_answer(q)
-    return JSONResponse({'ok': True, 'answer': ans})
+    return JSONResponse({'ok': True, 'mode': 'rule', 'answer': ans})
+
+
+@app.post('/api/help-chat/actions/test-api')
+def help_action_test_api(request: Request):
+    email = _current_email(request)
+    if not email:
+        return JSONResponse({'ok': False, 'error': 'login_required'})
+    tenant_id = current_tenant_id(request)
+    out = _run_api_test_for_tenant(email, tenant_id)
+    return JSONResponse({'ok': bool(out.get('ok')), 'tenant_id': tenant_id, **out})
+
+
+@app.post('/api/help-chat/actions/check-worker')
+def help_action_check_worker(request: Request, payload: dict | None = None):
+    email = _current_email(request)
+    if not email:
+        return JSONResponse({'ok': False, 'error': 'login_required'})
+    payload = payload or {}
+    tenant_id = current_tenant_id(request)
+    status = engine_manager.status(tenant_id)
+    requested = bool(payload.get('restart_if_stopped'))
+    restarted = False
+
+    if requested and not status.get('running') and status.get('license_ok', True):
+        restarted = bool(engine_manager.start(tenant_id))
+        status = engine_manager.status(tenant_id)
+
+    message = 'worker running' if status.get('running') else 'worker stopped'
+    if not status.get('license_ok', True):
+        message = f"worker blocked by license: {_license_reason_message(status.get('license_reason', ''))}"
+
+    return JSONResponse({
+        'ok': True,
+        'tenant_id': tenant_id,
+        'status': status,
+        'requested_restart': requested,
+        'restarted': restarted,
+        'message': message,
+    })
+
+
+@app.post('/api/help-chat/actions/risk-suggestions')
+def help_action_risk_suggestions(request: Request, payload: dict | None = None):
+    email = _current_email(request)
+    if not email:
+        return JSONResponse({'ok': False, 'error': 'login_required'})
+
+    tenant_id = current_tenant_id(request)
+    payload = payload or {}
+    profile = str(payload.get('profile') or 'balanced').strip().lower()
+    profile = profile if profile in {'conservative', 'balanced', 'aggressive'} else 'balanced'
+
+    presets = {
+        'conservative': {'risk_per_trade': 0.003, 'max_positions': 2, 'leverage_hint': '2-3x'},
+        'balanced': {'risk_per_trade': 0.005, 'max_positions': 3, 'leverage_hint': '3-5x'},
+        'aggressive': {'risk_per_trade': 0.01, 'max_positions': 5, 'leverage_hint': '5-8x'},
+    }
+
+    return JSONResponse({
+        'ok': True,
+        'tenant_id': tenant_id,
+        'profile': profile,
+        'suggestion': presets[profile],
+        'apply_mode': 'manual_only',
+        'warning': 'ระบบให้คำแนะนำเท่านั้น ยังไม่เปลี่ยนค่าจริงจนกว่าจะมีการยืนยันแบบ explicit confirmation',
+    })
 
 
 @app.get('/api/futures-balance')
@@ -1072,21 +1282,12 @@ def settings_api_save(request: Request, api_key: str = Form(...), api_secret: st
 
 @app.post('/settings/api/test')
 def settings_api_test(request: Request):
-    import ccxt
     email = (request.session.get('user_email') or '').strip().lower()
     if not email:
         return JSONResponse({'ok': False, 'error': 'login_required'})
     tenant_id = current_tenant_id(request)
-    k, sec = get_user_api(email, tenant_id=tenant_id)
-    if not k or not sec:
-        return JSONResponse({'ok': False, 'error': 'no_api_saved'})
-    try:
-        ex = ccxt.binance({'apiKey': k, 'secret': sec, 'enableRateLimit': True, 'options': {'defaultType': 'future'}})
-        b = ex.fetch_balance()
-        usdt = float((b.get('USDT') or {}).get('total') or 0)
-        return JSONResponse({'ok': True, 'usdt_total': usdt})
-    except Exception as e:
-        return JSONResponse({'ok': False, 'error': str(e)[:180]})
+    out = _run_api_test_for_tenant(email, tenant_id)
+    return JSONResponse(out)
 
 
 @app.get('/proof')
