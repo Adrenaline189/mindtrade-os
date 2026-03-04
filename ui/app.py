@@ -637,7 +637,7 @@ def payment_webhook(payload: dict, x_signature: str | None = Header(default=None
         email = payload.get('email')
         plan = payload.get('plan', 'starter')
         if email:
-            rec = issue_license(email=email, plan=plan, days=30 if plan=='starter' else 30, max_devices=1 if plan=='starter' else 2)
+            cfg = {'starter': (30,1), 'pro': (30,2), 'pro_trial': (7,2)}.get(plan, (30,1)); rec = issue_license(email=email, plan=plan, days=cfg[0], max_devices=cfg[1])
             return JSONResponse({'ok': True, 'license_token': rec['license_token'], 'plan': rec['plan']})
 
     return JSONResponse({'ok': True, 'processed': True})
@@ -818,7 +818,7 @@ def landing_page(request: Request):
 
 
 @app.get('/checkout')
-def checkout_page(request: Request, plan: str = 'starter'):
+def checkout_page(request: Request, plan: str = 'pro'):
     email = _current_email(request)
     if not email:
         return RedirectResponse('/auth/login?err=login_required', status_code=303)
@@ -836,7 +836,7 @@ def checkout_page(request: Request, plan: str = 'starter'):
 
 
 @app.post('/checkout/create-order')
-def checkout_create_order(request: Request, plan: str = Form('starter'), channel: str = Form('binance_pay')):
+def checkout_create_order(request: Request, plan: str = Form('pro'), channel: str = Form('binance_pay')):
     email = _current_email(request)
     if not email:
         return RedirectResponse('/auth/login?err=login_required', status_code=303)

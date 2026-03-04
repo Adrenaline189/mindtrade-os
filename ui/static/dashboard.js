@@ -104,8 +104,19 @@ function applyLanguage(lang) {
 function toBangkokTime(v) {
   try {
     if (!v) return '';
-    const d = new Date(v);
-    if (Number.isNaN(d.getTime())) return String(v);
+    const raw = String(v).trim();
+
+    // Trade logs are stored in UTC without timezone suffix, e.g. "2026-03-03 15:00:00"
+    // Normalize to ISO-UTC before parsing so browser local timezone won't skew output.
+    let iso = raw;
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)) {
+      iso = raw.replace(' ', 'T') + 'Z';
+    } else if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(raw)) {
+      iso = raw + 'Z';
+    }
+
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return raw;
     return d.toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', hour12: false });
   } catch (e) {
     return String(v || '');

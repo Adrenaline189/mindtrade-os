@@ -284,6 +284,30 @@ def normalize_order_amount(symbol: str, amount: float, ctx: EngineContext | None
     return amt, ('clamped' if changed else '')
 
 
+
+
+def margin_precheck_ok(symbol: str, qty: float, entry_price: float, ctx: EngineContext | None = None):
+    """Best-effort free margin pre-check to reduce -2019 errors."""
+    ex = _exchange(ctx)
+    try:
+        bal = ex.fetch_balance()
+        usdt = (bal.get('USDT') or {}) if isinstance(bal, dict) else {}
+        free = float(usdt.get('free') or 0)
+    except Exception:
+        return True, 0.0, 0.0
+
+    cfg = _cfg(ctx)
+    default_lev = int(cfg.get('LEVERAGE', 5) or 5)
+    lev_map = cfg.get('LEVERAGE_BY_SYMBOL', {}) or {}
+    lev = int(lev_map.get(symbol, default_lev) or default_lev)
+    lev = max(1, lev)
+
+    notional = float(qty) * max(0.0, float(entry_price or 0.0))
+    required = notional / lev if lev else notional
+    buffer_required = required * 1.10
+    return free >= buffer_required, free, buffer_required
+
+
 def place_order_with_qty_retry(symbol: str, order_type: str, side: str, qty: float, *, params=None, max_attempts: int = 6, ctx: EngineContext | None = None):
     """Retry order with smaller qty when exchange returns max-qty errors."""
     ex = _exchange(ctx)
@@ -303,6 +327,9 @@ def place_order_with_qty_retry(symbol: str, order_type: str, side: str, qty: flo
                 current = current * 0.5
                 notify(f"⚠️ {symbol} {order_type} qty retry {attempt}: reduce -> {current}", ctx=ctx)
                 continue
+            if ('-2019' in msg) or ('margin is insufficient' in msg.lower()):
+                notify(f"⚠️ {symbol} margin insufficient while placing {order_type}", force=True, ctx=ctx)
+                raise
             raise
     raise last_err if last_err else Exception('order_retry_failed')
 
@@ -321,6 +348,11 @@ def send_live_order(symbol: str, side: str, trade, ctx: EngineContext | None = N
         return "blocked"
     if reason:
         notify(f"⚠️ qty adjusted {symbol}: {raw_size} -> {size}", ctx=ctx)
+
+    ok_margin, free_margin, req_margin = margin_precheck_ok(symbol, size, float(trade.get("entry") or 0), ctx=ctx)
+    if not ok_margin:
+        notify(f"⚠️ {symbol} blocked: margin insufficient (free={free_margin:.2f} < required≈{req_margin:.2f})", force=True, ctx=ctx)
+        return "blocked"
 
     _, filled_qty = place_order_with_qty_retry(symbol, "MARKET", order_side, size, ctx=ctx)
     place_order_with_qty_retry(symbol, "STOP_MARKET", close_side, filled_qty, params={"stopPrice": trade["sl"], "reduceOnly": True}, ctx=ctx)
