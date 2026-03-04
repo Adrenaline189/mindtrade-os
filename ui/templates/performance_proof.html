@@ -9,7 +9,7 @@
   <title>MindTrade OS · Performance Proof</title>
 </head>
 <body>
-<div class="wrap" style="max-width:1080px">
+<div class="wrap wrap-wide">
   <div class="topbar">
     <div><div class="page-title">🏆 Performance Proof</div><div class="small">สรุปผลจริงแบบเรียบหรู โปร่งใส และพร้อมใช้กับลูกค้า • Tenant: <b>{{ tenant_id }}</b></div></div>
     <div class="pill">LIVE Evidence</div>
@@ -26,9 +26,9 @@
     <div class="card"><div class="kpi-label">|uPnL| Exposure</div><div class="kpi-value">{{ exposure or 0 }}</div></div>
   </div>
 
-  <div class="card" style="margin-top:12px"><div class="kpi-label" style="margin-bottom:8px">Equity Curve (R)</div><canvas id="eq" style="width:100%;height:220px;border-radius:10px;background:#0c1428;border:1px solid #263a62"></canvas></div>
+  <div class="card mt-md"><div class="kpi-label section-gap-xs">Equity Curve (R)</div><canvas id="eq" class="proof-canvas"></canvas></div>
 
-  <div class="toolbar" style="margin-top:12px"><a class="btn btn-ghost" href="/">← กลับ Dashboard</a><a class="btn btn-ghost" href="/admin/control">🛠 Control</a><a class="btn btn-ghost" href="/profile">👤 Profile</a></div>
+  <div class="toolbar mt-md"><a class="btn btn-ghost" href="/">← กลับ Dashboard</a><a class="btn btn-ghost" href="/admin/control">🛠 Control</a><a class="btn btn-ghost" href="/profile">👤 Profile</a></div>
 </div>
 {% set active='proof' %}{% include '_mobile_nav.html' %}
 {% include '_pwa.html' %}

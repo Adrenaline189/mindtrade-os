@@ -1,8 +1,8 @@
 <!doctype html>
 <html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name="theme-color" content="#0b1222" /><link rel="manifest" href="/static/manifest.json" /><link rel="stylesheet" href="/static/style.css" /><title>MindTrade OS Profile</title></head><body>
-<div class="wrap" style="max-width:980px">
+<div class="wrap wrap-medium">
 <h2 class="page-title">👤 MindTrade OS Profile</h2>
-<div class='card'><a href='/' style='text-decoration:none'>📊 ไปหน้า Dashboard</a></div>
+<div class='card'><a href='/' class='no-deco'>📊 ไปหน้า Dashboard</a></div>
 <div class='card'>ผู้ใช้: <strong>{{ user_email or '-' }}</strong> | <a href='/auth/logout'>Logout</a></div>
 <div class='card'><strong>Announcement:</strong> {{ announcement }}</div>
 
@@ -38,7 +38,7 @@
   <h3>🔁 Renew Plan</h3>
   <form method='post' action='/profile/renew' class="toolbar">
     <input type='hidden' name='token' value='{{ rec.license_token }}'>
-    <label>Days: <input name='days' value='30' style='width:120px'></label>
+    <label>Days: <input name='days' value='30' class='w-120'></label>
     <button type='submit'>Renew</button>
   </form>
 </div>

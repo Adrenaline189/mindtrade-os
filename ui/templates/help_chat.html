@@ -6,31 +6,40 @@
 <link rel="stylesheet" href="/static/style.css" />
 <title>MindTrade OS Help Chat</title>
 </head><body>
-<div class="wrap" style="max-width:900px">
+<div class="wrap wrap-medium">
   <h2 class="page-title">💬 AI Help Chat (Bot Usage Only)</h2>
   <div class="card hint">ระบบนี้ตอบเฉพาะการใช้งาน MindTrade OS และบอทเทรดเท่านั้นค่ะ</div>
-  <div class="card toolbar">
-    <button onclick="askQ('leverage ต่างกันยังไง')">leverage ต่างกันยังไง</button>
-    <button onclick="askQ('cooldown คืออะไร')">cooldown คืออะไร</button>
-    <button onclick="askQ('ตั้งค่า api binance ยังไง')">ตั้งค่า API Binance ยังไง</button>
-    <button onclick="askQ('วิธี start stop bot')">วิธี start/stop</button>
+  <div class="card toolbar" id="quickQuestions">
+    <button type="button" data-q="leverage ต่างกันยังไง">leverage ต่างกันยังไง</button>
+    <button type="button" data-q="cooldown คืออะไร">cooldown คืออะไร</button>
+    <button type="button" data-q="ตั้งค่า api binance ยังไง">ตั้งค่า API Binance ยังไง</button>
+    <button type="button" data-q="วิธี start stop bot">วิธี start/stop</button>
   </div>
   <div class="card">
     <textarea id="q" placeholder="พิมพ์คำถามเกี่ยวกับการใช้งานบอท..."></textarea>
-    <div class="toolbar" style="margin-top:8px"><button onclick="sendQ()">ถาม</button><a class="btn btn-ghost" href='/'>กลับ Dashboard</a></div>
+    <div class="toolbar mt-sm"><button type="button" id="sendQ">ถาม</button><a class="btn btn-ghost" href='/'>กลับ Dashboard</a></div>
   </div>
-  <div class="card" id="a" style="white-space:pre-wrap;line-height:1.5">คำตอบจะแสดงตรงนี้ค่ะ</div>
+  <div class="card answer-box" id="a">คำตอบจะแสดงตรงนี้ค่ะ</div>
 </div>
 {% set active='help' %}{% include '_mobile_nav.html' %}
 {% include '_pwa.html' %}
 <script>
-async function askQ(text){document.getElementById('q').value=text; await sendQ();}
-async function sendQ(){
-  const q=document.getElementById('q').value.trim();
+async function sendQ(prefill=''){
+  const qEl=document.getElementById('q');
+  const aEl=document.getElementById('a');
+  if(!qEl || !aEl) return;
+  if(prefill) qEl.value = prefill;
+  const q=qEl.value.trim();
   if(!q) return;
   const res=await fetch('/api/help-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
   const data=await res.json();
-  document.getElementById('a').textContent=data.answer||'-';
+  aEl.textContent=data.answer||'-';
 }
+
+document.getElementById('quickQuestions')?.addEventListener('click', (e)=>{
+  const btn = e.target.closest('button[data-q]');
+  if(btn) sendQ(btn.dataset.q || '');
+});
+document.getElementById('sendQ')?.addEventListener('click', ()=>sendQ());
 </script>
 </body></html>

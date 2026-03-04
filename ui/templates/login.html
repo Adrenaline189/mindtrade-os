@@ -9,16 +9,16 @@
   <title>Login · MindTrade OS</title>
 </head>
 <body>
-  <div class="wrap" style="max-width:520px;padding-top:28px">
+  <div class="wrap wrap-narrow pt-lg">
     <div class="card">
       <h2 class="page-title">🔐 Login</h2>
-      {% if err %}<div class="bad" style="margin:8px 0 12px">Login failed</div>{% endif %}
+      {% if err %}<div class="bad error-note">Login failed</div>{% endif %}
       <form method="post" action="/auth/login" class="stack">
         <input name="email" placeholder="Email" required>
         <input name="password" type="password" placeholder="Password" required>
         <button type="submit">Login</button>
       </form>
-      <p class="small" style="margin-top:10px"><a href="/auth/signup">Create account</a></p>
+      <p class="small mt-sm"><a href="/auth/signup">Create account</a></p>
     </div>
   </div>
   {% include '_pwa.html' %}
