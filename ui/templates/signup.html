@@ -1,8 +1,26 @@
-<!doctype html><html><head><meta charset='utf-8'><title>Signup</title>
-<style>body{font-family:Arial;background:#0b1020;color:#eef4ff;padding:20px}.card{max-width:420px;margin:auto;background:#121a32;border:1px solid #2a3a68;border-radius:12px;padding:16px}input{width:100%;padding:10px;margin:6px 0;border-radius:8px;border:1px solid #334a7d;background:#0f1530;color:#fff}.err{color:#ff9aa5}</style>
-</head><body><div class='card'><h2>📝 Create account</h2>{% if err %}<div class='err'>{{ err }}</div>{% endif %}
-<form method='post' action='/auth/signup'>
-<input name='email' placeholder='Email' required>
-<input name='password' type='password' placeholder='Password (min 6)' required>
-<button type='submit'>Sign up</button>
-</form><p><a href='/auth/login'>Have account? Login</a></p></div></body></html>
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b1222" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <link rel="stylesheet" href="/static/style.css" />
+  <title>Signup · MindTrade OS</title>
+</head>
+<body>
+  <div class="wrap" style="max-width:520px;padding-top:28px">
+    <div class="card">
+      <h2 class="page-title">📝 Create account</h2>
+      {% if err %}<div class="bad" style="margin:8px 0 12px">{{ err }}</div>{% endif %}
+      <form method="post" action="/auth/signup" class="stack">
+        <input name="email" placeholder="Email" required>
+        <input name="password" type="password" placeholder="Password (min 6)" required>
+        <button type="submit">Sign up</button>
+      </form>
+      <p class="small" style="margin-top:10px"><a href="/auth/login">Have account? Login</a></p>
+    </div>
+  </div>
+  {% include '_pwa.html' %}
+</body>
+</html>

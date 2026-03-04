@@ -1,0 +1,11 @@
+{
+  "name": "MindTrade OS",
+  "short_name": "MindTrade",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#070b14",
+  "theme_color": "#0b1222",
+  "description": "MindTrade OS dashboard and trading control panel",
+  "icons": []
+}

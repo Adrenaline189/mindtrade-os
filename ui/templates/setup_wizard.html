@@ -3,67 +3,22 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#0b1222" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <link rel="stylesheet" href="/static/style.css" />
   <title>MindTrade OS - Setup Wizard</title>
-  <style>
-    body{font-family:Inter,Arial,sans-serif;background:#0b1020;color:#ecf3ff;padding:20px}
-    .wrap{max-width:980px;margin:0 auto}
-    .card{background:#121a32;border:1px solid #2a3a68;border-radius:12px;padding:14px;margin-bottom:12px}
-    .muted{color:#9fb3da}
-    code{background:#0f1530;border:1px solid #334a7d;padding:2px 6px;border-radius:6px}
-    a{color:#8fb3ff}
-    li{margin:6px 0}
-    .ok{color:#62e8a7}
-    .warn{color:#ffd17a}
-  </style>
 </head>
 <body>
 <div class="wrap">
-  <h2>🧭 MindTrade OS - Setup Wizard (Binance API)</h2>
-  <div class="card">
-    <strong>เป้าหมาย:</strong> ตั้งค่าให้ลูกค้าเริ่มใช้งานได้ง่ายที่สุด ภายใน 5-10 นาที
-  </div>
-
-  <div class="card">
-    <h3>Step 1) เตรียมบัญชี Binance</h3>
-    <ul>
-      <li>ล็อกอิน Binance และเปิดใช้งานบัญชี Futures ให้เรียบร้อย</li>
-      <li>เปิด 2FA ก่อนสร้าง API Key</li>
-    </ul>
-  </div>
-
-  <div class="card">
-    <h3>Step 2) สร้าง API Key</h3>
-    <ul>
-      <li>ไปที่ <b>API Management</b> แล้วสร้าง API ใหม่</li>
-      <li>คัดลอก <code>API Key</code> และ <code>Secret Key</code> (secret จะเห็นครั้งเดียว)</li>
-    </ul>
-  </div>
-
-  <div class="card">
-    <h3>Step 3) ตั้งสิทธิ์ให้ถูก</h3>
-    <ul>
-      <li class="ok">Enable Reading: <b>ON</b></li>
-      <li class="ok">Enable Futures: <b>ON</b> (ถ้าใช้งาน futures)</li>
-      <li class="warn">Withdraw permission: <b>OFF</b> เสมอ</li>
-    </ul>
-  </div>
-
-  <div class="card">
-    <h3>Step 4) IP Whitelist</h3>
-    <p class="muted">ถ้าเปิด IP restriction ต้องเพิ่ม IP ของเซิร์ฟเวอร์นี้:</p>
-    <p><code>{{ vps_ip }}</code></p>
-  </div>
-
-  <div class="card">
-    <h3>Step 5) ใส่ค่าในระบบ</h3>
-    <ul>
-      <li>ใส่ค่า API ในไฟล์ <code>.env</code> ของเซิร์ฟเวอร์</li>
-      <li>จากนั้น restart service</li>
-      <li>ตรวจสอบการเชื่อมต่อที่ <a href="/api/connection" target="_blank">/api/connection</a></li>
-    </ul>
-  </div>
-
-  
+  <h2 class="page-title">🧭 MindTrade OS - Setup Wizard (Binance API)</h2>
+  <div class="card"><strong>เป้าหมาย:</strong> ตั้งค่าให้ลูกค้าเริ่มใช้งานได้ง่ายที่สุด ภายใน 5-10 นาที</div>
+  <div class="card"><h3>Step 1) เตรียมบัญชี Binance</h3><ul><li>ล็อกอิน Binance และเปิดใช้งานบัญชี Futures ให้เรียบร้อย</li><li>เปิด 2FA ก่อนสร้าง API Key</li></ul></div>
+  <div class="card"><h3>Step 2) สร้าง API Key</h3><ul><li>ไปที่ <b>API Management</b> แล้วสร้าง API ใหม่</li><li>คัดลอก <code>API Key</code> และ <code>Secret Key</code> (secret จะเห็นครั้งเดียว)</li></ul></div>
+  <div class="card"><h3>Step 3) ตั้งสิทธิ์ให้ถูก</h3><ul><li class="ok">Enable Reading: <b>ON</b></li><li class="ok">Enable Futures: <b>ON</b> (ถ้าใช้งาน futures)</li><li class="warn">Withdraw permission: <b>OFF</b> เสมอ</li></ul></div>
+  <div class="card"><h3>Step 4) IP Whitelist</h3><p class="muted">ถ้าเปิด IP restriction ต้องเพิ่ม IP ของเซิร์ฟเวอร์นี้:</p><p><code>{{ vps_ip }}</code></p></div>
+  <div class="card"><h3>Step 5) ใส่ค่าในระบบ</h3><ul><li>ใส่ค่า API ในไฟล์ <code>.env</code> ของเซิร์ฟเวอร์</li><li>จากนั้น restart service</li><li>ตรวจสอบการเชื่อมต่อที่ <a href="/api/connection" target="_blank">/api/connection</a></li></ul></div>
 </div>
+{% set active='help' %}{% include '_mobile_nav.html' %}
+{% include '_pwa.html' %}
 </body>
 </html>

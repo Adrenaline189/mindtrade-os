@@ -5,86 +5,57 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>MindTrade OS</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <meta name="theme-color" content="#0b1222" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <link rel="stylesheet" href="/static/style.css" />
   <style>
-    :root {
-      --bg:#070b14; --bg2:#0b1222; --card:rgba(18,26,46,.72); --card2:rgba(20,30,54,.78);
-      --line:#2a3b66; --line2:#31487d; --muted:#93a7cb; --text:#edf3ff;
-      --ok:#37e08a; --warn:#ffbf66; --bad:#ff6f7d; --accent:#6ea8ff; --accent2:#7c6bff;
-    }
+    :root { --bg:#070b14; --bg2:#0b1222; --card:rgba(18,26,46,.72); --card2:rgba(20,30,54,.78); --line:#2a3b66; --line2:#31487d; --muted:#93a7cb; --text:#edf3ff; --ok:#37e08a; --bad:#ff6f7d; --accent:#6ea8ff; }
     * { box-sizing:border-box; }
-    body {
-      margin:0; font-family: Inter, ui-sans-serif, system-ui, Arial;
-      background:
-        radial-gradient(1200px 500px at 10% -10%, rgba(110,168,255,.18), transparent 60%),
-        radial-gradient(1000px 500px at 90% -20%, rgba(124,107,255,.18), transparent 58%),
-        linear-gradient(180deg,var(--bg),var(--bg2));
-      color:var(--text);
-    }
-    .wrap { max-width:1260px; margin:24px auto; padding:0 16px 40px; }
-    .top { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
-    .status {
-      padding:8px 12px; border-radius:999px; font-weight:700; font-size:12px;
-      border:1px solid var(--line2); background:rgba(19,29,54,.8); backdrop-filter: blur(10px);
-      letter-spacing:.4px;
-    }
+    body { margin:0; font-family:Inter,ui-sans-serif,system-ui,Arial; color:var(--text); background:radial-gradient(1200px 500px at 10% -10%, rgba(110,168,255,.18), transparent 60%),radial-gradient(1000px 500px at 90% -20%, rgba(124,107,255,.18), transparent 58%),linear-gradient(180deg,var(--bg),var(--bg2)); padding-bottom:94px; }
+    .wrap { max-width:1260px; margin:12px auto; padding:0 12px 36px; }
+    .top { display:flex; flex-direction:column; gap:10px; margin-bottom:12px; }
+    .status { padding:8px 12px; border-radius:999px; font-weight:700; font-size:12px; border:1px solid var(--line2); background:rgba(19,29,54,.8); letter-spacing:.4px; }
     .running { color:var(--ok); } .stopped { color:var(--bad); }
-    .grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; margin-bottom:14px; }
-    .card {
-      background:linear-gradient(180deg,var(--card),var(--card2));
-      border:1px solid var(--line); border-radius:14px; padding:14px;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.03), 0 12px 30px rgba(0,0,0,.24);
-      backdrop-filter: blur(10px);
-    }
-    .kpi-label { color:var(--muted); font-size:12px; letter-spacing:.3px; }
-    .kpi-value { font-size:24px; font-weight:800; margin-top:4px; font-variant-numeric: tabular-nums; }
-    .main { display:grid; grid-template-columns:2fr 1fr; gap:14px; }
-    table { width:100%; border-collapse:collapse; font-size:13px; }
-    th,td { padding:9px 8px; border-bottom:1px solid #223256; text-align:left; }
+    .grid,.inspo,.main { display:grid; grid-template-columns:1fr; gap:10px; }
+    .grid { margin-bottom:12px; }
+    .card { background:linear-gradient(180deg,var(--card),var(--card2)); border:1px solid var(--line); border-radius:14px; padding:12px; box-shadow: inset 0 1px 0 rgba(255,255,255,.03), 0 12px 30px rgba(0,0,0,.24); }
+    .kpi-label,.small { color:var(--muted); font-size:12px; }
+    .kpi-value { font-size:24px; font-weight:800; margin-top:4px; font-variant-numeric:tabular-nums; }
+    .table-scroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+    table { width:100%; border-collapse:collapse; font-size:13px; min-width:640px; }
+    th,td { padding:10px 8px; border-bottom:1px solid #223256; text-align:left; white-space:nowrap; }
     th { color:#bed0f3; font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.5px; }
-    tr:hover td { background: rgba(110,168,255,.05); }
     .tag { font-weight:700; padding:3px 8px; border-radius:999px; font-size:11px; display:inline-block; border:1px solid transparent; }
     .ENTRY_PAPER,.ENTRY_LIVE,.ENTRY { background:rgba(55,224,138,.14); color:#8ef2bf; border-color:rgba(55,224,138,.28); }
     .PAPER_TP1,.PAPER_TP2 { background:rgba(110,168,255,.15); color:#a8ccff; border-color:rgba(110,168,255,.3); }
     .PAPER_SL,.BLOCKED { background:rgba(255,111,125,.15); color:#ffb6be; border-color:rgba(255,111,125,.3); }
     .SKIP { background:rgba(255,191,102,.12); color:#ffd59e; border-color:rgba(255,191,102,.25); }
-    input,select {
-      width:100%; margin-top:6px; margin-bottom:10px; background:#0d1530; color:#fff;
-      border:1px solid #324a7f; border-radius:9px; padding:9px; outline:none;
-    }
-    input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(110,168,255,.15); }
-    button {
-      background:linear-gradient(180deg,#3f6de0,#2f56b7); color:white; border:0; border-radius:10px;
-      padding:8px 12px; cursor:pointer; font-weight:700;
-    }
-    button:hover { filter:brightness(1.06); }
+    input,select,button { min-height:44px; font-size:16px; }
+    input,select { width:100%; margin-top:6px; margin-bottom:10px; background:#0d1530; color:#fff; border:1px solid #324a7f; border-radius:10px; padding:10px; outline:none; }
+    input:focus,select:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(110,168,255,.15); }
+    button { background:linear-gradient(180deg,#3f6de0,#2f56b7); color:#fff; border:0; border-radius:10px; padding:8px 12px; cursor:pointer; font-weight:700; }
     .danger { background:linear-gradient(180deg,#a54354,#7b2f3e); }
-    .row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-    .actions { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
-    .small { color:var(--muted); font-size:12px; }
+    .row { display:grid; grid-template-columns:1fr; gap:8px; }
+    .actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
+    .actions form, .actions button { width:100%; }
     .toolbar { display:flex; gap:8px; margin:10px 0; flex-wrap:wrap; }
-    .sticky-panic { position:fixed; right:16px; bottom:16px; z-index:1000; display:flex; gap:8px; }
-    .floating-help{position:fixed;right:16px;bottom:70px;z-index:1000;}
-    .floating-help a{display:inline-block;background:linear-gradient(180deg,#3f6de0,#2f56b7);color:#fff;padding:10px 12px;border-radius:999px;text-decoration:none;font-weight:700;box-shadow:0 8px 20px rgba(0,0,0,.35);}
-    .help-widget-btn{position:fixed;right:16px;bottom:70px;z-index:1100;background:linear-gradient(180deg,#3f6de0,#2f56b7);color:#fff;border:none;border-radius:999px;padding:10px 12px;font-weight:700;cursor:pointer;box-shadow:0 8px 20px rgba(0,0,0,.35);}
-    .help-widget{position:fixed;right:16px;bottom:120px;width:340px;max-width:calc(100vw - 24px);height:420px;z-index:1101;background:#101a34;border:1px solid #324a7f;border-radius:14px;display:none;flex-direction:column;overflow:hidden;box-shadow:0 16px 40px rgba(0,0,0,.45);}
+    .navx { display:flex; gap:8px; margin-bottom:12px; overflow:auto; }
+    .navx .pill { padding:8px 12px; border:1px solid var(--line2); border-radius:10px; color:#bfd1f5; background:#101a34; font-size:12px; white-space:nowrap; text-decoration:none; }
+    .mini-list div{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #2a3d6f;color:#c8d7f7;font-size:12px}
+    pre { background:#0d1530; border:1px solid #2a3d6f; border-radius:10px; padding:12px; overflow:auto; }
+    .help-widget-btn{position:fixed;right:12px;bottom:84px;z-index:1100;background:linear-gradient(180deg,#3f6de0,#2f56b7);color:#fff;border:none;border-radius:999px;padding:10px 12px;font-weight:700;cursor:pointer;box-shadow:0 8px 20px rgba(0,0,0,.35);}
+    .help-widget{position:fixed;right:12px;bottom:132px;width:340px;max-width:calc(100vw - 24px);height:420px;z-index:1101;background:#101a34;border:1px solid #324a7f;border-radius:14px;display:none;flex-direction:column;overflow:hidden;box-shadow:0 16px 40px rgba(0,0,0,.45);}
     .help-widget.open{display:flex;}
     .help-widget-head{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid #2b3f6f;font-size:13px;}
     .help-widget-body{padding:10px;display:flex;flex-direction:column;gap:8px;height:100%;}
     .help-widget-log{flex:1;background:#0b1329;border:1px solid #2b3f6f;border-radius:10px;padding:8px;overflow:auto;font-size:13px;white-space:pre-wrap;}
-    .help-widget-input{display:flex;gap:6px;}
-    .help-widget-input input{margin:0;flex:1;}
-    pre { background:#0d1530; border:1px solid #2a3d6f; border-radius:10px; padding:12px; overflow:auto; }
-    canvas { border-radius:10px; }
-    
-    .navx { display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
-    .navx .pill { padding:8px 12px; border:1px solid var(--line2); border-radius:10px; color:#bfd1f5; background:#101a34; font-size:12px; }
-    .inspo { display:grid; grid-template-columns: 1.2fr 1.2fr .8fr; gap:14px; margin-bottom:14px; }
-    .donut { width:180px; height:180px; border-radius:50%; margin:auto; background: conic-gradient(#73b6ff 0 40%, #6b7bff 40% 70%, #ffb86b 70% 100%); position:relative; }
-    .donut:after { content:''; position:absolute; inset:18px; border-radius:50%; background:#0d1530; }
-    .mini-list div{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed #2a3d6f;color:#c8d7f7;font-size:12px}
-    .spark { height:56px; border-radius:8px; background:linear-gradient(180deg,rgba(110,168,255,.25),rgba(110,168,255,.03)); border:1px solid #2b3f6f; }
-
-    @media (max-width:980px){ .grid{grid-template-columns:repeat(2,minmax(0,1fr));} .main{grid-template-columns:1fr;} .inspo{grid-template-columns:1fr;} }
+    .help-widget-input{display:flex;gap:6px;}.help-widget-input input{margin:0;flex:1;min-height:40px;font-size:14px;}
+    .sticky-panic { position:fixed; left:12px; right:12px; bottom:84px; z-index:1000; display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .mobile-quick-nav { position:fixed; left:0; right:0; bottom:0; z-index:1200; display:grid; grid-template-columns:repeat(5,1fr); gap:4px; padding:8px; background:rgba(7,11,20,.96); border-top:1px solid #273961; backdrop-filter: blur(8px); }
+    .mobile-quick-nav a { color:#d8e6ff; text-decoration:none; font-size:11px; text-align:center; padding:8px 4px; border-radius:10px; border:1px solid #2d4577; background:#101a34; }
+    .mobile-quick-nav a.active { border-color:#6ea8ff; color:#fff; }
+    @media (min-width:860px){ body{padding-bottom:18px;} .wrap{margin:24px auto;padding:0 16px 40px;} .top{flex-direction:row;justify-content:space-between;align-items:center;} .grid{grid-template-columns:repeat(4,minmax(0,1fr));} .inspo{grid-template-columns:1fr 1fr 1fr;} .main{grid-template-columns:2fr 1fr;} .row{grid-template-columns:1fr 1fr;} .actions{display:flex;flex-wrap:wrap;} .sticky-panic{left:auto;right:16px;bottom:16px;display:flex;} .help-widget-btn{right:16px;bottom:70px;} .help-widget{right:16px;bottom:120px;} .mobile-quick-nav{display:none;} }
+    @media (min-width:1100px){ .grid{grid-template-columns:repeat(5,minmax(0,1fr));} }
   </style>
 </head>
 <body>
@@ -101,13 +72,11 @@
   </div>
   <div class="toolbar" id="symbolTabs"></div>
   <div class="navx">
-    <a class="pill" href="/help-chat" style="text-decoration:none">💬 AI Help</a>
-    <a class="pill" href="/profile" style="text-decoration:none">👤 Profile</a>
-    <div class="pill">Dashboard</div>
-    <div class="pill">Arbitrage AI Bots</div>
-    <div class="pill">My Exchanges</div>
-    <div class="pill">Settings</div>
-    <div class="pill">Support</div>
+    <a class="pill" href="/">📊 Dashboard</a>
+    <a class="pill" href="/admin/control">🛠 Workers/Admin</a>
+    <a class="pill" href="/profile">👤 Profile</a>
+    <a class="pill" href="/proof">🏆 Proof</a>
+    <a class="pill" href="/help-chat">💬 Help</a>
   </div>
 
 
@@ -202,17 +171,19 @@
           <option>ENTRY_PAPER</option><option>ENTRY_LIVE</option><option>PAPER_TP1</option><option>PAPER_TP2</option><option>PAPER_SL</option><option>BLOCKED</option><option>SKIP</option>
         </select>
       </div>
-      <table id="eventsTable">
-        <thead><tr><th>Time</th><th>Symbol</th><th>Bias</th><th>RSI</th><th>Result</th><th>Note</th></tr></thead>
-        <tbody>
-        {% for t in trades|reverse %}
-          <tr data-symbol="{{ t.symbol or '-' }}" data-result="{{ t.result }}">
-            <td>{{ t.time }}</td><td>{{ t.symbol or '-' }}</td><td>{{ t.bias }}</td><td>{{ t.rsi }}</td>
-            <td><span class="tag {{ t.result }}">{{ t.result }}</span></td><td>{{ t.note or '' }}</td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
+      <div class="table-scroll">
+        <table id="eventsTable">
+          <thead><tr><th>Time</th><th>Symbol</th><th>Bias</th><th>RSI</th><th>Result</th><th>Note</th></tr></thead>
+          <tbody>
+          {% for t in trades|reverse %}
+            <tr data-symbol="{{ t.symbol or '-' }}" data-result="{{ t.result }}">
+              <td>{{ t.time }}</td><td>{{ t.symbol or '-' }}</td><td>{{ t.bias }}</td><td>{{ t.rsi }}</td>
+              <td><span class="tag {{ t.result }}">{{ t.result }}</span></td><td>{{ t.note or '' }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
       <div id="eventsPager" class="toolbar" style="justify-content:flex-end">
         <button type="button" id="evtPrev">◀ Prev</button>
         <span class="small" id="evtPageInfo">Page 1/1</span>
@@ -257,7 +228,6 @@
       </div>
     </div>
   </div>
-</div>
 
   <div class="card" style="margin-top:14px;">
     <h3 style="margin-top:0"><span id="txt_blocked">🚧 Blocked Reasons</span></h3>
@@ -266,13 +236,14 @@
 
   <div class="card" style="margin-top:14px;">
     <h3 style="margin-top:0"><span id="txt_positions_tbl">📦 Open Positions</span></h3>
-    <table id="posTable"><thead><tr><th>Symbol</th><th>Side</th><th>Contracts</th><th>Entry</th><th>Mark</th><th>uPnL</th></tr></thead><tbody></tbody></table>
+    <div class="table-scroll"><table id="posTable"><thead><tr><th>Symbol</th><th>Side</th><th>Contracts</th><th>Entry</th><th>Mark</th><th>uPnL</th></tr></thead><tbody></tbody></table></div>
   </div>
 
   <div class="card" style="margin-top:14px;">
     <h3 style="margin-top:0">⚖️ Leverage by Symbol</h3>
-    <table id="levTable"><thead><tr><th>Symbol</th><th>Leverage</th><th>Margin Mode</th></tr></thead><tbody></tbody></table>
+    <div class="table-scroll"><table id="levTable"><thead><tr><th>Symbol</th><th>Leverage</th><th>Margin Mode</th></tr></thead><tbody></tbody></table></div>
   </div>
+</div>
 
 <button class="help-widget-btn" id="helpWidgetToggle">💬 AI Help</button>
 <div class="help-widget" id="helpWidget">
@@ -290,6 +261,9 @@
   <form action="/panic" method="post" onsubmit="return confirm('ยืนยันเปิด PANIC STOP ?')"><button class="danger" id="txt_panic_btn">🛑 PANIC</button></form>
   <form action="/unpanic" method="post" onsubmit="return confirm('ปลด PANIC STOP ?')"><button id="txt_unpanic_btn">✅ UNPANIC</button></form>
 </div>
+
+{% set active='dashboard' %}
+{% include '_mobile_nav.html' %}
 
 <script>
 let chart;
@@ -603,6 +577,12 @@ if(btnTestApi){
       const d=await r.json();
       apiTestResult.textContent = d.ok ? `OK • USDT ${Number(d.usdt_total||0).toFixed(2)}` : `ERR • ${d.error||'unknown'}`;
     }catch(e){ apiTestResult.textContent='ERR • request failed'; }
+  });
+}
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/static/service-worker.js').catch(() => {});
   });
 }
 
