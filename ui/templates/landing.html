@@ -3,102 +3,94 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>{{ product_name }} | Landing</title>
-  <style>
-    :root{--bg:#070b17;--card:#0f1730;--line:#2a3a68;--text:#eaf1ff;--muted:#9db0d8;--pri:#5c8cff;--ok:#57e39f}
-    *{box-sizing:border-box} body{margin:0;background:radial-gradient(circle at 10% 10%,#15244a 0,#070b17 45%);color:var(--text);font-family:Inter,Arial,sans-serif}
-    .wrap{max-width:1040px;margin:0 auto;padding:28px 18px}
-    .hero{border:1px solid var(--line);background:linear-gradient(135deg,#0f1730 0,#0b1226 100%);border-radius:16px;padding:28px}
-    h1{margin:.2rem 0 1rem;font-size:2rem} p{color:var(--muted);line-height:1.6}
-    .cta{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
-    .btn{display:inline-block;padding:10px 14px;border-radius:10px;text-decoration:none;color:white;border:1px solid transparent}
-    .btn-pri{background:var(--pri)} .btn-ghost{border-color:var(--line);background:#101a36}
-    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:14px}
-    .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
-    .price{font-size:1.35rem;font-weight:700;color:var(--ok)}
-    .footer{color:#8ea4d3;margin-top:22px;font-size:.92rem}
-  </style>
+  <meta name="theme-color" content="#0b1222" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <link rel="stylesheet" href="/static/style.css" />
+  <title>{{ product_name }} | AI Trading OS</title>
 </head>
 <body>
-  <div class="wrap">
-    <section class="hero">
-      <div style="font-size:.9rem;color:#9ab2e6">🚀 {{ product_name }}</div>
-      <h1>เทรดอย่างเป็นระบบ ไม่ใช่อารมณ์</h1>
-      <p>{{ tagline }}<br/>พร้อม Dashboard, Risk Guard, Multi-symbol, และระบบสมาชิกในตัว</p>
+  <div class="app-shell">
+    <header class="topnav">
+      <div class="brand">MindTrade OS <small>Premium Trading Workspace</small></div>
+      <div class="topnav-links">
+        <a class="pill" href="/auth/login">เข้าสู่ระบบ</a>
+        <a class="pill" href="/setup">Setup</a>
+        <a class="btn" href="/auth/signup">เริ่มใช้งาน</a>
+      </div>
+    </header>
+
+    <section class="hero-premium card">
+      <div class="kicker">MindTrade Platform</div>
+      <h1>เทรดอย่างเป็นระบบ ด้วย AI + Risk Guard ในหน้าจอเดียว</h1>
+      <p>{{ tagline }} พร้อม Dashboard แบบมืออาชีพ, ระบบสมาชิก, และเครื่องมือควบคุมพอร์ตที่ชัดเจนทั้งบนมือถือและเดสก์ท็อป</p>
       <div class="cta">
-        <a class="btn btn-pri" href="/auth/signup">สมัครใช้งาน</a>
-        <a class="btn btn-ghost" href="/auth/login">เข้าสู่ระบบ</a>
-        <a class="btn btn-ghost" href="/setup">คู่มือตั้งค่า API</a>
+        <a class="btn" href="/auth/signup">ทดลองใช้ฟรี 7 วัน</a>
+        <a class="btn btn-ghost" href="/auth/login">มีบัญชีอยู่แล้ว</a>
+        <a class="btn btn-ghost" href="/proof">ดู Performance Proof</a>
+      </div>
+      <div class="badge-row">
+        <span class="badge">Multi-Tenant Ready</span>
+        <span class="badge">Worker + License Control</span>
+        <span class="badge">PWA Mobile-first</span>
       </div>
     </section>
 
-    <section class="grid">
-      <div class="card"><h3>📊 Smart Dashboard</h3><p>ดูสถานะบอท, health, performance และ events แบบเรียลไทม์</p></div>
-      <div class="card"><h3>🛡️ Risk-first Engine</h3><p>daily loss cap, cooldown, panic stop และ guard หลายชั้น</p></div>
-      <div class="card"><h3>🔑 Membership Ready</h3><p>ออก license, ต่ออายุ, suspend/activate, ส่ง token ทาง Telegram</p></div>
+    <section class="feature-grid">
+      <article class="card"><h3 class="m-top-0">📊 Value Proposition</h3><p>ช่วยลดการเทรดตามอารมณ์ด้วยระบบสัญญาณ, กฎความเสี่ยง, และบันทึกเหตุการณ์ที่ตรวจสอบย้อนหลังได้</p></article>
+      <article class="card"><h3 class="m-top-0">⚙️ Feature Highlights</h3><p>Realtime KPI, Open Position Monitor, Help Chat, Diagnose, API Test, และ Control Panel สำหรับแอดมินในระบบเดียว</p></article>
+      <article class="card"><h3 class="m-top-0">🔐 Trust & Ops</h3><p>มีระบบสิทธิ์สมาชิก, payment workflow, และ license gate ลดความเสี่ยงการใช้งานผิดเงื่อนไข พร้อม webhook flow สำหรับ production</p></article>
     </section>
 
-    <section class="grid" style="margin-top:18px">
-      <div class="card"><h3>✨ จุดขายหลัก</h3><p><b>MindTrade OS</b> ออกแบบมาเพื่อคนที่อยากเทรดแบบมืออาชีพ: วัดผลได้, คุมความเสี่ยงได้, และขยายเป็นระบบธุรกิจได้จริง</p></div>
-      <div class="card"><h3>🏅 จุดแข็งที่ต่างจากบอททั่วไป</h3><p>แยกผู้ใช้แบบ Multi-tenant, มี worker control, license/billing พร้อมใช้งาน และมี monitoring/backup สำหรับ production จริง</p></div>
-      <div class="card"><h3>📱 พร้อมไป Mobile</h3><p>UI mobile-first, ติดตั้งแบบ PWA ได้, ใช้งานจากมือถือสะดวก และพร้อมต่อยอดเป็น native app</p></div>
-    </section>
-
-    <section class="grid" style="margin-top:6px">
-      <div class="card"><h3>✅ เหมาะกับใคร</h3><p>เทรดเดอร์ที่ต้องการระบบอัตโนมัติที่ไม่เสี่ยงเกินตัว, เจ้าของเพจ/คอมมูนิตี้ที่อยากให้สมาชิกใช้งานง่าย, และผู้ที่ต้องการ dashboard สวยพร้อมหลักฐานผลลัพธ์</p></div>
-      <div class="card"><h3>💎 Value ที่ลูกค้าได้</h3><p>ลดเวลาเฝ้าหน้าจอ, ตัดสินใจจากข้อมูลจริง, และมีระบบคุมความเสี่ยง/สิทธิ์สมาชิกครบในแพลตฟอร์มเดียว</p></div>
-      <div class="card"><h3>🚀 เริ่มง่าย โตได้</h3><p>สมัคร → ตั้งค่า API → ทดสอบ → เริ่มรัน ได้ในไม่กี่ขั้นตอน พร้อมหน้า Proof ใช้สื่อสารผลงานกับลูกค้า</p></div>
-    </section>
-
-    <section class="grid">
-      <div class="card">
-        <h3>Starter</h3>
-        <div class="price"><span style="text-decoration:line-through;color:#9db0d8;font-size:1rem">฿1,490</span> → ฿990 / เดือน</div>
-        <p>เหมาะสำหรับสายทดลองระบบ + paper workflow</p>
-      </div>
-      <div class="card">
-        <h3>Pro</h3>
-        <div class="price"><span style="text-decoration:line-through;color:#9db0d8;font-size:1rem">฿4,900</span> → ฿2,990 / เดือน</div>
-        <p>สำหรับผู้ใช้จริง: LIVE mode, multi-symbol, alerts และ priority support</p>
-      </div>
-      <div class="card">
-        <h3>Founder Promo</h3>
-        <div class="price">โปรพิเศษช่วงเปิดตัว</div>
-        <p>โปรโมชันพิเศษสำหรับ early adopters</p>
+    <section class="card section-gap-md">
+      <h2 class="section-title">แพ็กเกจที่เหมาะกับสไตล์เทรดของคุณ</h2>
+      <div class="grid grid-sm-2">
+        <div class="card plan-card">
+          <div class="kicker">Starter</div>
+          <div class="plan-price">29 USDT / เดือน</div>
+          <p>เหมาะกับผู้เริ่มต้นที่ต้องการวัดผลอย่างมีวินัย</p>
+          <ul class="small"><li>Dashboard + KPI พื้นฐาน</li><li>Risk guard มาตรฐาน</li><li>ใช้งานได้ 1 อุปกรณ์</li></ul>
+          <a class="btn btn-ghost" href="/checkout?plan=starter">เลือก Starter</a>
+        </div>
+        <div class="card plan-card highlight">
+          <div class="kicker">Pro</div>
+          <div class="plan-price">79 USDT / เดือน</div>
+          <p>สำหรับสายใช้งานจริง เน้นความชัดเจนและการขยายระบบ</p>
+          <ul class="small"><li>Advanced controls + admin tools</li><li>รองรับ multi-symbol flow</li><li>ใช้งานได้ 2 อุปกรณ์</li></ul>
+          <a class="btn" href="/checkout?plan=pro">เลือก Pro</a>
+        </div>
       </div>
     </section>
 
-    <div class="card" style="margin-top:12px"><b>⏰ โปรโมชันจำกัดเวลา</b><br><span style="color:#9db0d8">โปรโมชันนี้สิ้นสุดภายใน 3 เดือน — ถึงวันที่ <b>4 มิถุนายน 2026</b></span></div>
-
-
-
-    <section class="card" style="margin-top:14px;overflow:auto">
-      <h3 style="margin-top:0">📋 เปรียบเทียบแพ็กเกจ</h3>
-      <table style="width:100%;border-collapse:collapse;min-width:680px">
-        <thead>
-          <tr>
-            <th style="text-align:left;padding:10px;border-bottom:1px solid #2a3a68">ฟีเจอร์</th>
-            <th style="text-align:left;padding:10px;border-bottom:1px solid #2a3a68">Starter (฿990)</th>
-            <th style="text-align:left;padding:10px;border-bottom:1px solid #2a3a68">Pro (฿2,990)</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr><td style="padding:10px;border-bottom:1px solid #24345f">โหมดการใช้งาน</td><td style="padding:10px;border-bottom:1px solid #24345f">พื้นฐาน + ทดลอง</td><td style="padding:10px;border-bottom:1px solid #24345f">ครบสำหรับใช้งานจริง</td></tr>
-          <tr><td style="padding:10px;border-bottom:1px solid #24345f">Multi-symbol</td><td style="padding:10px;border-bottom:1px solid #24345f">จำกัด</td><td style="padding:10px;border-bottom:1px solid #24345f">เต็มรูปแบบ</td></tr>
-          <tr><td style="padding:10px;border-bottom:1px solid #24345f">Worker Control / Tenant Control</td><td style="padding:10px;border-bottom:1px solid #24345f">-</td><td style="padding:10px;border-bottom:1px solid #24345f">✅</td></tr>
-          <tr><td style="padding:10px;border-bottom:1px solid #24345f">Alerts & Monitoring</td><td style="padding:10px;border-bottom:1px solid #24345f">พื้นฐาน</td><td style="padding:10px;border-bottom:1px solid #24345f">✅ ขั้นสูง</td></tr>
-          <tr><td style="padding:10px;border-bottom:1px solid #24345f">Priority Support</td><td style="padding:10px;border-bottom:1px solid #24345f">-</td><td style="padding:10px;border-bottom:1px solid #24345f">✅</td></tr>
-        </tbody>
-      </table>
+    <section class="card section-gap-md">
+      <h2 class="section-title">เปรียบเทียบแพ็กเกจ</h2>
+      <div class="table-scroll">
+        <table class="table-tight">
+          <thead><tr><th>ฟีเจอร์</th><th>Starter</th><th>Pro</th></tr></thead>
+          <tbody>
+            <tr><td>Risk Guard (loss cap / cooldown)</td><td>✅</td><td>✅</td></tr>
+            <tr><td>Realtime Dashboard + Events</td><td>✅</td><td>✅</td></tr>
+            <tr><td>Advanced Admin Control</td><td>—</td><td>✅</td></tr>
+            <tr><td>รองรับหลายอุปกรณ์</td><td>1</td><td>2</td></tr>
+            <tr><td>Priority Support</td><td>—</td><td>✅</td></tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
-    <section class="grid" style="margin-top:12px">
-      <div class="card"><h3>❓ FAQ</h3><p><b>เริ่มใช้งานยากไหม?</b><br>ไม่ยากค่ะ มีหน้า Setup และ AI Help ในระบบครบ</p><p><b>ต้องมีความรู้เทรดสูงไหม?</b><br>เริ่มจากค่า default ที่ปลอดภัยได้ แล้วค่อยปรับทีละขั้น</p></div>
-      <div class="card"><h3>🛡️ ข้อควรรู้เรื่องความเสี่ยง</h3><p>ตลาดมีความผันผวนสูง ผลลัพธ์ในอดีตไม่การันตีกำไรในอนาคต ควรเริ่มทุนเล็กและใช้ risk guard เสมอ</p></div>
-      <div class="card"><h3>📞 Support</h3><p>มีหน้า Admin/Control และระบบแจ้งเตือนเพื่อช่วยแก้ปัญหาได้เร็ว พร้อมเอกสาร SOP สำหรับการซัพพอร์ต</p></div>
+    <section class="trust-grid section-gap-md">
+      <div class="card"><h3 class="m-top-0">🧾 Operational Transparency</h3><p>ทุกอีเวนต์, KPI และสถานะการทำงานดูย้อนหลังได้ ช่วยให้ตรวจสอบการตัดสินใจง่ายขึ้น</p></div>
+      <div class="card"><h3 class="m-top-0">🛡️ Security Mindset</h3><p>แนะนำตั้งค่า API แบบปลอดภัย (อ่าน/ฟิวเจอร์สเท่านั้น, ปิดถอน) พร้อมแนวทาง whitelist IP</p></div>
+      <div class="card"><h3 class="m-top-0">🤝 Support Workflow</h3><p>หน้า Help + Diagnose และ Admin queue ทำให้ซัพพอร์ตลูกค้าได้เร็วและมีขั้นตอนที่ชัดเจน</p></div>
     </section>
 
-    <div class="footer">© 2026 MindTrade OS — Built for disciplined traders</div>
+    <section class="card section-gap-md">
+      <h2 class="section-title">FAQ</h2>
+      <div class="faq-item"><b>เริ่มใช้งานยากไหม?</b><div class="muted">ไม่ยาก มีหน้า Setup Wizard และ Help Chat ให้ใช้งานทันที</div></div>
+      <div class="faq-item"><b>ต้องมีประสบการณ์เทรดไหม?</b><div class="muted">สามารถเริ่มจากค่าความเสี่ยงต่ำ และค่อยปรับตามผลลัพธ์ได้</div></div>
+      <div class="faq-item"><b>รองรับมือถือไหม?</b><div class="muted">รองรับแบบ mobile-first พร้อมเมนูแตะง่ายและ PWA</div></div>
+      <div class="faq-item"><b>มีความเสี่ยงไหม?</b><div class="muted">มีความเสี่ยงตามธรรมชาติของตลาด ควรตั้ง risk guard และบริหารเงินอย่างเคร่งครัด</div></div>
+    </section>
   </div>
+  {% include '_pwa.html' %}
 </body>
 </html>

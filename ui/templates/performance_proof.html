@@ -9,11 +9,11 @@
   <title>MindTrade OS · Performance Proof</title>
 </head>
 <body>
-<div class="wrap wrap-wide">
-  <div class="topbar">
-    <div><div class="page-title">🏆 Performance Proof</div><div class="small">สรุปผลจริงแบบเรียบหรู โปร่งใส และพร้อมใช้กับลูกค้า • Tenant: <b>{{ tenant_id }}</b></div></div>
-    <div class="pill">LIVE Evidence</div>
-  </div>
+<div class="app-shell">
+  <header class="topnav">
+    <div class="brand">🏆 Performance Proof</div>
+    <div class="topnav-links"><a class="pill" href="/">Dashboard</a><a class="pill" href="/profile">Profile</a><a class="pill" href="/admin/control">Control</a></div>
+  </header>
 
   <div class="grid grid-sm-4">
     <div class="card"><div class="kpi-label">Entries</div><div class="kpi-value">{{ summary.entries or 0 }}</div></div>
@@ -27,8 +27,6 @@
   </div>
 
   <div class="card mt-md"><div class="kpi-label section-gap-xs">Equity Curve (R)</div><canvas id="eq" class="proof-canvas"></canvas></div>
-
-  <div class="toolbar mt-md"><a class="btn btn-ghost" href="/">← กลับ Dashboard</a><a class="btn btn-ghost" href="/admin/control">🛠 Control</a><a class="btn btn-ghost" href="/profile">👤 Profile</a></div>
 </div>
 {% set active='proof' %}{% include '_mobile_nav.html' %}
 {% include '_pwa.html' %}
@@ -38,20 +36,14 @@ async function drawEquity(){
   const ctx=c.getContext('2d'); let data=[];
   try{ const r=await fetch('/api/pnl'); const j=await r.json(); data=(j.equity||[]).map(Number).filter(x=>!isNaN(x)); }catch(e){}
   if(!data.length){ data=[0,0,0]; }
-  const w=c.width = c.clientWidth*window.devicePixelRatio;
-  const h=c.height = c.clientHeight*window.devicePixelRatio;
-  ctx.scale(window.devicePixelRatio,window.devicePixelRatio);
-  const cw=c.clientWidth, ch=c.clientHeight;
-  ctx.clearRect(0,0,cw,ch);
-  const min=Math.min(...data), max=Math.max(...data), pad=16, range=(max-min)||1;
-  ctx.strokeStyle='#20385f'; ctx.lineWidth=1;
-  for(let i=0;i<4;i++){ const y=pad + (ch-2*pad)*(i/3); ctx.beginPath(); ctx.moveTo(pad,y); ctx.lineTo(cw-pad,y); ctx.stroke(); }
-  ctx.strokeStyle='#74a8ff'; ctx.lineWidth=2; ctx.beginPath();
-  data.forEach((v,i)=>{ const x=pad + (cw-2*pad)*(i/(Math.max(1,data.length-1))); const y=pad + (ch-2*pad)*(1-((v-min)/range)); if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+  const W=c.width=c.clientWidth*devicePixelRatio, H=c.height=c.clientHeight*devicePixelRatio;
+  ctx.scale(devicePixelRatio,devicePixelRatio); const w=c.clientWidth,h=c.clientHeight;
+  ctx.clearRect(0,0,w,h); ctx.strokeStyle='#58e4a0'; ctx.lineWidth=2;
+  const min=Math.min(...data), max=Math.max(...data), span=(max-min)||1;
+  data.forEach((v,i)=>{ const x=(i/(data.length-1||1))*w; const y=h-((v-min)/span)*h; if(i===0)ctx.moveTo(x,y); else ctx.lineTo(x,y); });
   ctx.stroke();
 }
-window.addEventListener('load', drawEquity);
-window.addEventListener('resize', ()=>setTimeout(drawEquity,120));
+window.addEventListener('resize', drawEquity); drawEquity();
 </script>
 </body>
 </html>

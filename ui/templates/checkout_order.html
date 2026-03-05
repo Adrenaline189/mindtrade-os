@@ -1,14 +1,14 @@
 <!doctype html>
-<html><head><meta charset='utf-8'><title>Payment Order</title>
-<style>body{font-family:Arial;background:#0b1020;color:#eef4ff;padding:20px}.card{max-width:760px;background:#121a32;border:1px solid #2a3a68;border-radius:12px;padding:16px}.qr{height:220px;border:2px dashed #3f5c93;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#9fc2ff;margin:12px 0}a{color:#8ec5ff}</style>
-</head><body>
-<h2>🧾 Order {{ order.order_id }}</h2>
-<div class='card'>
-<p>Status: <b>{{ order.status }}</b></p>
-<p>Channel: <b>{{ order.channel }}</b> | Amount: <b>{{ order.amount }} {{ order.currency }}</b></p>
-<p>{{ instruction }}</p>
-<div class='qr'>{{ qr_placeholder }}</div>
-<p>Reference: <code>{{ order.order_id }}</code></p>
-<p><a href='/payments/status/{{ order.order_id }}'>Refresh payment status</a></p>
+<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Payment Order</title><link rel="stylesheet" href="/static/style.css"></head><body>
+<div class="app-shell wrap-medium">
+  <header class="topnav"><div class="brand">🧾 Order {{ order.order_id }}</div><div class="topnav-links"><a class="pill" href="/profile">Profile</a></div></header>
+  <div class='card'>
+    <p>Status: <b>{{ order.status }}</b></p>
+    <p>Channel: <b>{{ order.channel }}</b> | Amount: <b>{{ order.amount }} {{ order.currency }}</b></p>
+    <p>{{ instruction }}</p>
+    <div class="card" style="text-align:center; border-style:dashed">{{ qr_placeholder }}</div>
+    <p>Reference: <code>{{ order.order_id }}</code></p>
+    <a class="btn" href='/payments/status/{{ order.order_id }}'>Refresh payment status</a>
+  </div>
 </div>
 </body></html>

@@ -6,8 +6,11 @@
 <link rel="stylesheet" href="/static/style.css" />
 <title>MindTrade OS Help Chat</title>
 </head><body>
-<div class="wrap wrap-medium">
-  <h2 class="page-title">💬 AI Help Chat (Bot Usage Only)</h2>
+<div class="app-shell">
+  <header class="topnav">
+    <div class="brand">💬 Help Center</div>
+    <div class="topnav-links"><a class="pill" href="/">Dashboard</a><a class="pill" href="/setup">Setup Wizard</a></div>
+  </header>
   <div class="card hint">ระบบนี้ตอบเฉพาะการใช้งาน MindTrade OS และบอทเทรดเท่านั้นค่ะ</div>
   <div class="card toolbar" id="quickQuestions">
     <button type="button" data-q="leverage ต่างกันยังไง">leverage ต่างกันยังไง</button>
@@ -22,48 +25,17 @@
   </div>
   <div class="card">
     <textarea id="q" placeholder="พิมพ์คำถามเกี่ยวกับการใช้งานบอท..."></textarea>
-    <div class="toolbar mt-sm"><button type="button" id="sendQ">ถาม</button><a class="btn btn-ghost" href='/'>กลับ Dashboard</a></div>
+    <div class="toolbar mt-sm"><button type="button" id="sendQ">ถาม</button></div>
   </div>
   <div class="card answer-box" id="a">คำตอบจะแสดงตรงนี้ค่ะ</div>
 </div>
 {% set active='help' %}{% include '_mobile_nav.html' %}
 {% include '_pwa.html' %}
 <script>
-function renderAnswer(text){
-  const aEl=document.getElementById('a');
-  if(aEl) aEl.textContent=text||'-';
-}
-
-async function sendQ(prefill=''){
-  const qEl=document.getElementById('q');
-  if(!qEl) return;
-  if(prefill) qEl.value = prefill;
-  const q=qEl.value.trim();
-  if(!q) return;
-  const res=await fetch('/api/help-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
-  const data=await res.json();
-  renderAnswer(data.answer||'-');
-}
-
-async function runAction(url, body={}){
-  const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  const data=await res.json();
-  if(data.answer){
-    renderAnswer(data.answer);
-    return;
-  }
-  if(data.error){
-    renderAnswer('เกิดข้อผิดพลาด: '+data.error);
-    return;
-  }
-  renderAnswer(JSON.stringify(data,null,2));
-}
-
-document.getElementById('quickQuestions')?.addEventListener('click', (e)=>{
-  const btn = e.target.closest('button[data-q]');
-  if(btn) sendQ(btn.dataset.q || '');
-});
-
+function renderAnswer(text){ const aEl=document.getElementById('a'); if(aEl) aEl.textContent=text||'-'; }
+async function sendQ(prefill=''){ const qEl=document.getElementById('q'); if(!qEl) return; if(prefill) qEl.value = prefill; const q=qEl.value.trim(); if(!q) return; const res=await fetch('/api/help-chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})}); const data=await res.json(); renderAnswer(data.answer||'-'); }
+async function runAction(url, body={}){ const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); const data=await res.json(); if(data.answer){renderAnswer(data.answer);return;} if(data.error){renderAnswer('เกิดข้อผิดพลาด: '+data.error);return;} renderAnswer(JSON.stringify(data,null,2)); }
+document.getElementById('quickQuestions')?.addEventListener('click', (e)=>{ const btn = e.target.closest('button[data-q]'); if(btn) sendQ(btn.dataset.q || ''); });
 document.getElementById('sendQ')?.addEventListener('click', ()=>sendQ());
 document.getElementById('diagnoseNow')?.addEventListener('click', ()=>runAction('/api/help-chat',{action:'diagnose_now'}));
 document.getElementById('checkWorker')?.addEventListener('click', ()=>runAction('/api/help-chat/actions/check-worker',{restart_if_stopped:true}));

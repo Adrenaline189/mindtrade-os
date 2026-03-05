@@ -1,64 +1,77 @@
 <!doctype html>
-<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name="theme-color" content="#0b1222" /><link rel="manifest" href="/static/manifest.json" /><link rel="stylesheet" href="/static/style.css" /><title>MindTrade OS Profile</title></head><body>
-<div class="wrap wrap-medium">
-<h2 class="page-title">👤 MindTrade OS Profile</h2>
-<div class='card'><a href='/' class='no-deco'>📊 ไปหน้า Dashboard</a></div>
-<div class='card'><a href='/checkout' class='no-deco'>💳 ไปหน้า Checkout / ต่ออายุแพ็กเกจ</a></div>
-<div class='card'>ผู้ใช้: <strong>{{ user_email or '-' }}</strong> | <a href='/auth/logout'>Logout</a></div>
-<div class='card'><strong>Announcement:</strong> {{ announcement }}</div>
+<html lang="th">
+<head>
+  <meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+  <meta name="theme-color" content="#0b1222" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <link rel="stylesheet" href="/static/style.css" />
+  <title>MindTrade OS Profile</title>
+</head>
+<body>
+<div class="app-shell">
+  <header class="topnav">
+    <div class="brand">👤 Profile Center</div>
+    <div class="topnav-links">
+      <a class="pill" href="/">Dashboard</a>
+      <a class="pill" href="/checkout">Checkout</a>
+      <a class="pill" href="/auth/logout">Logout</a>
+    </div>
+  </header>
+
+  <div class='card'><strong>ผู้ใช้:</strong> {{ user_email or '-' }}</div>
+  <div class='card'><strong>Announcement:</strong> {{ announcement }}</div>
 
 {% if not rec %}
-<div class='card'>
-  <p class='muted'>ใส่ license token เพื่อดูโปรไฟล์</p>
-  <form method='get' action='/profile' class="stack">
-    <input name='token' value='{{ token }}' placeholder='license token'>
-    <button type='submit'>Load</button>
-  </form>
-</div>
+  <div class='card'>
+    <p class='muted'>ใส่ license token เพื่อดูโปรไฟล์</p>
+    <form method='get' action='/profile' class="stack">
+      <input name='token' value='{{ token }}' placeholder='license token'>
+      <button type='submit'>Load</button>
+    </form>
+  </div>
 {% else %}
-<div class='card stack'>
-  <div><strong>Email:</strong> {{ rec.email }}</div>
-  <div><strong>Plan:</strong> {{ rec.plan }}</div>
-  <div><strong>Status:</strong>
-    {% if rec.active is not defined or rec.active %}<span class='ok'>Active</span>{% else %}<span class='bad'>Suspended</span>{% endif %}
+  <div class="grid grid-sm-2">
+    <div class='card stack'>
+      <div><strong>Email:</strong> {{ rec.email }}</div>
+      <div><strong>Plan:</strong> {{ rec.plan }}</div>
+      <div><strong>Status:</strong> {% if rec.active is not defined or rec.active %}<span class='ok'>Active</span>{% else %}<span class='bad'>Suspended</span>{% endif %}</div>
+      <div><strong>Expires at:</strong> {{ rec.expires_at }}</div>
+      <div><strong>Days left:</strong>
+        {% if days_left is not none %}
+          {{ days_left }} วัน
+          {% if expiry_state == 'ok' %}<span class='pill ok'>ปกติ</span>{% endif %}
+          {% if expiry_state == 'warning' %}<span class='pill warn'>ใกล้หมดอายุ</span>{% endif %}
+          {% if expiry_state == 'expired' %}<span class='pill bad'>หมดอายุแล้ว</span>{% endif %}
+        {% else %}<span class='muted'>ไม่ทราบ</span>{% endif %}
+      </div>
+      <div><strong>Devices:</strong> {{ rec.devices|length }} / {{ rec.max_devices }}</div>
+      <div><strong>Token:</strong> <code>{{ rec.license_token }}</code></div>
+    </div>
+
+    <div class='card'>
+      <h3 class="m-top-0">🔁 Renew Plan</h3>
+      <form method='post' action='/profile/renew' class="stack">
+        <input type='hidden' name='token' value='{{ rec.license_token }}'>
+        <label>Days</label><input name='days' value='30'>
+        <button type='submit'>Renew</button>
+      </form>
+      <div class="small mt-sm">ต่ออายุแล้วสามารถตรวจสถานะได้ทันทีในหน้านี้</div>
+    </div>
   </div>
-  <div><strong>Expires at:</strong> {{ rec.expires_at }}</div>
-  <div><strong>Days left:</strong>
-    {% if days_left is not none %}
-      {{ days_left }} วัน
-      {% if expiry_state == 'ok' %}<span class='pill ok'>ปกติ</span>{% endif %}
-      {% if expiry_state == 'warning' %}<span class='pill warn'>ใกล้หมดอายุ (&le; 7 วัน)</span>{% endif %}
-      {% if expiry_state == 'expired' %}<span class='pill bad'>หมดอายุแล้ว</span>{% endif %}
-    {% else %}<span class='muted'>ไม่ทราบ</span>{% endif %}
+
+  <div class='card section-gap-md'>
+    <h3 class="m-top-0">💳 Payment History</h3>
+    {% if payments and payments|length > 0 %}
+    <div class="table-scroll"><table>
+      <thead><tr><th>Time</th><th>Status</th><th>Plan</th><th>Amount</th><th>Event ID</th></tr></thead>
+      <tbody>
+        {% for p in payments %}
+        <tr><td>{{ p.paid_at or p.time or '-' }}</td><td>{{ p.status or '-' }}</td><td>{{ p.plan or '-' }}</td><td>{{ p.amount or '-' }} {{ p.currency or '' }}</td><td><code>{{ p.event_id or '-' }}</code></td></tr>
+        {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}<div class='muted'>ยังไม่มีประวัติการชำระเงิน</div>{% endif %}
   </div>
-  <div><strong>Devices:</strong> {{ rec.devices|length }} / {{ rec.max_devices }}</div>
-  <div><strong>Token:</strong> <code>{{ rec.license_token }}</code></div>
-</div>
-
-<div class='card'>
-  <h3>🔁 Renew Plan</h3>
-  <form method='post' action='/profile/renew' class="toolbar">
-    <input type='hidden' name='token' value='{{ rec.license_token }}'>
-    <label>Days: <input name='days' value='30' class='w-120'></label>
-    <button type='submit'>Renew</button>
-  </form>
-</div>
-
-<div class='card'>
-  <h3>💳 Payment History</h3>
-  {% if payments and payments|length > 0 %}
-  <div class="table-scroll"><table>
-    <thead><tr><th>Time</th><th>Status</th><th>Plan</th><th>Amount</th><th>Event ID</th></tr></thead>
-    <tbody>
-      {% for p in payments %}
-      <tr><td>{{ p.paid_at or p.time or '-' }}</td><td>{{ p.status or '-' }}</td><td>{{ p.plan or '-' }}</td><td>{{ p.amount or '-' }} {{ p.currency or '' }}</td><td><code>{{ p.event_id or '-' }}</code></td></tr>
-      {% endfor %}
-    </tbody>
-  </table></div>
-  {% else %}<div class='muted'>ยังไม่มีประวัติการชำระเงิน</div>{% endif %}
-</div>
-
-<div class='card'><h3>📣 Promotions / News</h3><ul><li>Starter: ฿990 / เดือน</li><li>Pro: ฿2,990 / เดือน</li><li>Founder promo: early adopter support included</li></ul></div>
 {% endif %}
 </div>
 {% set active='profile' %}{% include '_mobile_nav.html' %}
