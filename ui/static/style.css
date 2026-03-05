@@ -191,6 +191,13 @@ button:focus-visible, .btn:focus-visible, a:focus-visible, input:focus-visible, 
 .sticky-panic { position:fixed; left:12px; right:12px; bottom:84px; z-index:1000; display:grid; grid-template-columns:1fr 1fr; gap:8px; }
 .symbol-tab-btn { min-height:40px; background:#2c4ea0; }
 .symbol-tab-btn.active { background:#4f7dff; }
+.score-cards { display:grid; gap:8px; grid-template-columns:1fr; }
+.score-card { border:1px solid #334e85; border-radius:10px; padding:10px; background:#0d1731; }
+.score-card.ok { border-color: rgba(87,227,159,.45); }
+.score-card.warn { border-color: rgba(255,207,122,.45); }
+.score-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+.score-main { font-size:24px; font-weight:800; line-height:1; margin:4px 0 6px; }
+.score-main small { font-size:12px; color:var(--muted); margin-left:4px; }
 
 /* small-screen table/card behavior */
 .mobile-table-cards { overflow-x: auto; }
@@ -222,6 +229,7 @@ button:focus-visible, .btn:focus-visible, a:focus-visible, input:focus-visible, 
   .dashboard-overview { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .dashboard-main { grid-template-columns: 2fr 1fr; }
   .row { grid-template-columns: 1fr 1fr; }
+  .score-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .sticky-panic { left:auto; right:16px; bottom:16px; display:flex; }
   .help-widget-btn { right:16px; bottom:70px; }
   .help-widget { right:16px; bottom:120px; }

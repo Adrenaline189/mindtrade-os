@@ -282,5 +282,14 @@ class TenantWorkerManager:
             worker_ids = list(self._workers.keys())
         return [self.status(tid) for tid in worker_ids]
 
+    def state_snapshot(self, tenant_id: str | None) -> dict:
+        tid = self._normalize_tenant(tenant_id)
+        with self._lock:
+            self._cleanup_stale_locked()
+            worker = self._workers.get(tid)
+            if not worker:
+                return {}
+            return dict(worker.state)
+
 
 tenant_worker_manager = TenantWorkerManager()

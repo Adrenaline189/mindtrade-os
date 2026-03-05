@@ -39,5 +39,9 @@ class EngineManager:
     def list_status(self) -> list[dict]:
         return tenant_worker_manager.list_status()
 
+    def state_snapshot(self, tenant_id: str | None = None) -> dict:
+        tid = tenant_id or self._active_tenant_id
+        return tenant_worker_manager.state_snapshot(tid)
+
 
 engine_manager = EngineManager()

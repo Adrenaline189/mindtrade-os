@@ -186,6 +186,9 @@ def analyze_market(df, ctx: EngineContext | None = None):
     return {
         "time": datetime.utcfromtimestamp(last["timestamp"] / 1000),
         "close": float(last["close"]),
+        "ema50": float(last["ema50"]),
+        "ema200": float(last["ema200"]),
+        "distance_pct": float(distance),
         "rsi": float(last["rsi"]),
         "adx": float(last["adx"]),
         "atr_pct": atr_pct,
@@ -193,6 +196,87 @@ def analyze_market(df, ctx: EngineContext | None = None):
         "golden_zone": golden_zone,
         "quality_ok": quality_ok,
     }
+
+
+def compute_realtime_score(analysis: dict, cfg: dict) -> dict:
+    bias = analysis.get("bias", "NO TRADE")
+    rsi_v = float(analysis.get("rsi") or 0.0)
+    adx_v = float(analysis.get("adx") or 0.0)
+    atr_pct = float(analysis.get("atr_pct") or 0.0)
+    distance = float(analysis.get("distance_pct") or 99.0)
+    close = float(analysis.get("close") or 0.0)
+    ema200 = float(analysis.get("ema200") or 0.0)
+
+    # Weighted components: trend(40) + momentum(35) + volatility(25)
+    trend = 0.0
+    momentum = 0.0
+    volatility = 0.0
+    reasons = []
+
+    if bias in {"LONG", "SHORT"}:
+        trend += 18.0
+        reasons.append(f"bias={bias}")
+
+        dist_limit = max(0.05, float(cfg.get("GOLDEN_ZONE_DISTANCE", 0.8)))
+        if distance <= dist_limit:
+            trend += 14.0
+            reasons.append(f"pullback_ok distance={distance:.2f}%")
+        else:
+            reasons.append(f"pullback_far distance={distance:.2f}%>{dist_limit:.2f}%")
+
+        if close > 0 and ema200 > 0:
+            ema_gap = abs((close - ema200) / ema200) * 100
+            if ema_gap >= 0.1:
+                trend += min(8.0, ema_gap * 2.5)
+                reasons.append(f"ema_trend_gap={ema_gap:.2f}%")
+
+    rsi_min = float(cfg.get("RSI_MIN", 40))
+    rsi_max = float(cfg.get("RSI_MAX", 60))
+    rsi_mid = (rsi_min + rsi_max) / 2.0
+    rsi_half = max(1.0, (rsi_max - rsi_min) / 2.0)
+    rsi_offset = abs(rsi_v - rsi_mid)
+    if rsi_min <= rsi_v <= rsi_max:
+        momentum += max(0.0, 25.0 - (rsi_offset / rsi_half) * 8.0)
+        reasons.append(f"rsi_in_range={rsi_v:.1f}")
+    else:
+        momentum += max(0.0, 8.0 - (rsi_offset / rsi_half) * 4.0)
+        reasons.append(f"rsi_out_of_range={rsi_v:.1f}")
+
+    adx_min = float(cfg.get("ADX_MIN", 14.0))
+    if adx_v >= adx_min:
+        momentum += min(10.0, (adx_v - adx_min) * 0.8 + 4.0)
+        reasons.append(f"adx_ok={adx_v:.1f}")
+    else:
+        momentum += max(0.0, adx_v / max(adx_min, 1.0) * 4.0)
+        reasons.append(f"adx_weak={adx_v:.1f}<{adx_min:.1f}")
+
+    atr_min = float(cfg.get("ATR_PCT_MIN", 0.25))
+    atr_max = float(cfg.get("ATR_PCT_MAX", 3.5))
+    if atr_min <= atr_pct <= atr_max:
+        atr_mid = (atr_min + atr_max) / 2.0
+        atr_half = max(0.05, (atr_max - atr_min) / 2.0)
+        atr_offset = abs(atr_pct - atr_mid)
+        volatility += max(0.0, 25.0 - (atr_offset / atr_half) * 10.0)
+        reasons.append(f"atr_in_range={atr_pct:.2f}%")
+    else:
+        volatility += 3.0
+        reasons.append(f"atr_out_of_range={atr_pct:.2f}%")
+
+    trend = max(0.0, min(40.0, trend))
+    momentum = max(0.0, min(35.0, momentum))
+    volatility = max(0.0, min(25.0, volatility))
+
+    total = int(round(max(0.0, min(100.0, trend + momentum + volatility))))
+    return {
+        "score": total,
+        "components": {
+            "trend": round(trend, 2),
+            "momentum": round(momentum, 2),
+            "volatility": round(volatility, 2),
+        },
+        "reasons": reasons,
+    }
+
 
 
 def calc_trade(df, analysis, ctx: EngineContext | None = None):
@@ -449,31 +533,64 @@ def run_engine_for_tenant(tenant_id: str, stop_event=None, state=None, isolation
                                 continue
                             last_map[symbol] = analysis["time"]
 
-                            log = {
-                                "time": analysis["time"], "symbol": symbol, "bias": analysis["bias"], "close": analysis["close"],
-                                "rsi": analysis["rsi"], "golden_zone": analysis["golden_zone"], "result": "SKIP", "note": ""
+                            score_data = compute_realtime_score(analysis, ctx.runtime_config)
+                            threshold = int(ctx.runtime_config.get("ENTRY_SCORE_THRESHOLD", 65) or 65)
+                            soft_gate = bool(ctx.runtime_config.get("ENTRY_SCORE_SOFT_GATE", True))
+                            score_ok = score_data["score"] >= threshold
+                            entry_setup_ok = analysis["golden_zone"] and analysis["quality_ok"]
+
+                            state.setdefault("realtime_signals", {})[symbol] = {
+                                "time": analysis["time"].isoformat(),
+                                "symbol": symbol,
+                                "bias": analysis["bias"],
+                                "close": analysis["close"],
+                                "rsi": analysis["rsi"],
+                                "adx": analysis["adx"],
+                                "atr_pct": analysis["atr_pct"],
+                                "distance_pct": analysis["distance_pct"],
+                                "golden_zone": analysis["golden_zone"],
+                                "quality_ok": analysis["quality_ok"],
+                                "score": score_data["score"],
+                                "components": score_data["components"],
+                                "score_reasons": score_data["reasons"],
+                                "score_threshold": threshold,
+                                "score_ok": score_ok,
+                                "soft_gate": soft_gate,
                             }
 
-                            if analysis["golden_zone"] and analysis["quality_ok"]:
-                                ok, reason = can_enter_trade_now(state=state, ctx=ctx)
-                                if not ok:
-                                    log["result"] = "BLOCKED"; log["note"] = reason
+                            log = {
+                                "time": analysis["time"], "symbol": symbol, "bias": analysis["bias"], "close": analysis["close"],
+                                "rsi": analysis["rsi"], "golden_zone": analysis["golden_zone"], "result": "SKIP",
+                                "note": f"score={score_data['score']} trend={score_data['components']['trend']} momentum={score_data['components']['momentum']} volatility={score_data['components']['volatility']}"
+                            }
+
+                            if entry_setup_ok:
+                                if soft_gate and not score_ok:
+                                    log["result"] = "BLOCKED"
+                                    log["note"] = f"score_gate score={score_data['score']}<{threshold} components={score_data['components']}"
                                 else:
-                                    trade = calc_trade(df, analysis, ctx=ctx)
-                                    if trade:
-                                        if ctx.runtime_config["MODE"] == "PAPER":
-                                            log["result"] = "ENTRY_PAPER"
-                                            log["note"] = f"entry={trade['entry']} sl={trade['sl']} tp1={trade['tp1']} tp2={trade['tp2']}"
-                                            touch_cooldown(state=state, ctx=ctx)
-                                        else:
-                                            st = send_live_order(symbol, analysis["bias"], trade, ctx=ctx)
-                                            log["result"] = "ENTRY_LIVE" if st == "live_sent" else "BLOCKED"
-                                            log["note"] = st
-                                            if st == "live_sent":
+                                    ok, reason = can_enter_trade_now(state=state, ctx=ctx)
+                                    if not ok:
+                                        log["result"] = "BLOCKED"; log["note"] = f"{reason} score={score_data['score']}"
+                                    else:
+                                        trade = calc_trade(df, analysis, ctx=ctx)
+                                        if trade:
+                                            if ctx.runtime_config["MODE"] == "PAPER":
+                                                log["result"] = "ENTRY_PAPER"
+                                                log["note"] = f"entry={trade['entry']} sl={trade['sl']} tp1={trade['tp1']} tp2={trade['tp2']} score={score_data['score']} components={score_data['components']}"
                                                 touch_cooldown(state=state, ctx=ctx)
+                                            else:
+                                                st = send_live_order(symbol, analysis["bias"], trade, ctx=ctx)
+                                                log["result"] = "ENTRY_LIVE" if st == "live_sent" else "BLOCKED"
+                                                log["note"] = f"{st} score={score_data['score']} components={score_data['components']}"
+                                                if st == "live_sent":
+                                                    touch_cooldown(state=state, ctx=ctx)
+                                        else:
+                                            log["result"] = "BLOCKED"
+                                            log["note"] = f"calc_trade_failed score={score_data['score']}"
                             elif analysis["golden_zone"] and not analysis["quality_ok"]:
                                 log["result"] = "BLOCKED"
-                                log["note"] = f"quality_filter adx={analysis['adx']:.1f} atr%={analysis['atr_pct']:.2f}"
+                                log["note"] = f"quality_filter adx={analysis['adx']:.1f} atr%={analysis['atr_pct']:.2f} score={score_data['score']}"
 
                             log_to_csv(log, ctx=ctx)
                             log_trade(log, tenant_id=ctx.tenant_id)

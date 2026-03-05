@@ -73,6 +73,11 @@
   </div>
 
   <div class="card section-gap-sm">
+    <h3 class="m-top-0">🎯 Real-time Entry Scores</h3>
+    <div id="scoreCards" class="score-cards small">Loading...</div>
+  </div>
+
+  <div class="card section-gap-sm">
     <h3 class="m-top-0">📘 คู่มือการกรอกค่า (Dashboard Guide)</h3>
     <details open>
       <summary><b>วิธีใช้งานแบบเร็ว</b></summary>
@@ -152,6 +157,8 @@
         <label>Max trades/day</label><input name="max_trades" value="{{ cfg.MAX_TRADES_PER_DAY }}">
         <label>Cooldown minutes</label><input name="cooldown_minutes" value="{{ cfg.COOLDOWN_MINUTES }}">
         <label>Daily loss cap %</label><input name="daily_loss_cap_pct" value="{{ cfg.DAILY_LOSS_CAP_PCT }}">
+        <label>Entry score threshold (0-100)</label><input name="entry_score_threshold" value="{{ cfg.ENTRY_SCORE_THRESHOLD or 65 }}">
+        <label>Score soft gate</label><select name="entry_score_soft_gate"><option value="true" {% if cfg.ENTRY_SCORE_SOFT_GATE %}selected{% endif %}>enabled</option><option value="false" {% if not cfg.ENTRY_SCORE_SOFT_GATE %}selected{% endif %}>disabled</option></select>
         <label>Symbols (comma separated)</label><input name="symbols" value="{{ cfg.SYMBOLS|join(',') }}">
         <button type="submit" id="txt_save_btn">Save</button>
       </form>

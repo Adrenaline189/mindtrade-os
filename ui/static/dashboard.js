@@ -185,6 +185,40 @@ function applyFilters(resetPage = false) {
   renderEventsPage();
 }
 
+async function refreshRealtimeSignals() {
+  const box = document.getElementById('scoreCards');
+  if (!box) return;
+  try {
+    const data = await fetch('/api/signals/realtime').then((r) => r.json());
+    const rows = data.signals || [];
+    if (!rows.length) {
+      box.textContent = 'No signal snapshots yet. Start worker and wait for next candle.';
+      return;
+    }
+
+    box.innerHTML = rows
+      .map((s) => {
+        const score = Number(s.score || 0);
+        const gate = s.score_ok ? 'PASS' : 'WAIT';
+        const cls = score >= (data.threshold || 65) ? 'ok' : 'warn';
+        const comps = s.components || {};
+        const reasons = (s.score_reasons || []).slice(0, 3).join(' • ');
+        return `
+          <div class="score-card ${cls}">
+            <div class="score-head"><strong>${s.symbol || '-'}</strong><span>${gate}</span></div>
+            <div class="score-main">${score}<small>/100</small></div>
+            <div class="small">bias=${s.bias || '-'} | threshold=${s.score_threshold ?? data.threshold}</div>
+            <div class="small">trend ${comps.trend ?? 0} • momentum ${comps.momentum ?? 0} • volatility ${comps.volatility ?? 0}</div>
+            <div class="small">${reasons}</div>
+          </div>
+        `;
+      })
+      .join('');
+  } catch (e) {
+    box.textContent = 'Failed to load realtime signals';
+  }
+}
+
 async function refreshLeverage() {
   try {
     const data = await fetch('/api/leverage').then((r) => r.json());
@@ -303,6 +337,7 @@ renderTabs();
 loadEventsData();
 refreshSummary();
 refreshLeverage();
+refreshRealtimeSignals();
 initLangSwitcher();
 initHelpWidget();
 initApiTest();
@@ -311,4 +346,5 @@ initStaticEvents();
 setInterval(() => {
   refreshSummary();
   refreshLeverage();
+  refreshRealtimeSignals();
 }, 10000);

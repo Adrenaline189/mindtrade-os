@@ -56,6 +56,7 @@ This project now supports tenant-scoped storage per logged-in user.
 Architecture notes and limitations:
 - `docs/multi-tenant-phase1.md`
 - `docs/multi-tenant-phase2.md`
+- `docs/realtime-entry-scoring-v1.md`
 
 ### Worker admin APIs + UI (Phase 2)
 

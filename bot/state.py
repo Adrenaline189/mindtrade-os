@@ -17,6 +17,9 @@ def create_bot_state() -> dict:
 
         "paper_trade": None,
         "paper_trade_by_symbol": {},
+
+        # latest per-symbol realtime scoring snapshot for dashboard/API
+        "realtime_signals": {},
     }
 
 

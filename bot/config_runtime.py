@@ -32,6 +32,10 @@ RUNTIME_CONFIG = {
     "ATR_PCT_MIN": 0.25,
     "ATR_PCT_MAX": 3.5,
 
+    # Realtime entry scoring (0-100)
+    "ENTRY_SCORE_SOFT_GATE": True,
+    "ENTRY_SCORE_THRESHOLD": 65,
+
     # News blackout (UTC HH:MM-HH:MM)
     "NEWS_BLACKOUT_WINDOWS_UTC": [
         "12:25-12:45",

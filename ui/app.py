@@ -389,6 +389,21 @@ def api_tenant_summary(tenant_id: str, symbol: str | None = None):
     })
 
 
+@app.get('/api/tenant/{tenant_id}/signals/realtime')
+def api_tenant_realtime_signals(tenant_id: str):
+    cfg = tenant_services.get_runtime_config(tenant_id)
+    st = engine_manager.state_snapshot(tenant_id)
+    rows = list((st.get('realtime_signals') or {}).values())
+    rows.sort(key=lambda x: str(x.get('symbol') or ''))
+    return JSONResponse({
+        'tenant_id': tenant_id,
+        'running': tenant_running(tenant_id),
+        'threshold': int(cfg.get('ENTRY_SCORE_THRESHOLD', 65) or 65),
+        'soft_gate': bool(cfg.get('ENTRY_SCORE_SOFT_GATE', True)),
+        'signals': rows,
+    })
+
+
 @app.get('/api/events')
 def api_events(request: Request, limit: int = 200):
     tenant_id = current_tenant_id(request)
@@ -534,6 +549,8 @@ def update_config(
     max_trades: int = Form(3),
     cooldown_minutes: int = Form(60),
     daily_loss_cap_pct: float = Form(3.0),
+    entry_score_threshold: int = Form(65),
+    entry_score_soft_gate: str = Form("true"),
     symbols: str = Form("BTC/USDT,ETH/USDT,SOL/USDT"),
 ):
     tenant_id = current_tenant_id(request)
@@ -548,6 +565,8 @@ def update_config(
             return RedirectResponse("/", status_code=303)
         if max_trades < 1 or cooldown_minutes < 0 or daily_loss_cap_pct <= 0:
             return RedirectResponse("/", status_code=303)
+        if entry_score_threshold < 0 or entry_score_threshold > 100:
+            return RedirectResponse("/", status_code=303)
 
         RUNTIME_CONFIG["RSI_MIN"] = rsi_min
         RUNTIME_CONFIG["RSI_MAX"] = rsi_max
@@ -560,6 +579,8 @@ def update_config(
         RUNTIME_CONFIG["MAX_TRADES_PER_DAY"] = max_trades
         RUNTIME_CONFIG["COOLDOWN_MINUTES"] = cooldown_minutes
         RUNTIME_CONFIG["DAILY_LOSS_CAP_PCT"] = daily_loss_cap_pct
+        RUNTIME_CONFIG["ENTRY_SCORE_THRESHOLD"] = int(entry_score_threshold)
+        RUNTIME_CONFIG["ENTRY_SCORE_SOFT_GATE"] = str(entry_score_soft_gate).strip().lower() in {"1", "true", "yes", "on"}
 
         parsed = [x.strip().upper() for x in symbols.split(',') if x.strip()]
         parsed = [x.replace('-', '/').replace(' ', '') for x in parsed]
@@ -669,6 +690,22 @@ def api_connection(request: Request):
 def api_open_positions(request: Request):
     tenant_id = current_tenant_id(request)
     return JSONResponse({'positions': fetch_open_positions(tenant_id=tenant_id)})
+
+
+@app.get('/api/signals/realtime')
+def api_realtime_signals(request: Request):
+    tenant_id = current_tenant_id(request)
+    cfg = tenant_services.get_runtime_config(tenant_id)
+    st = engine_manager.state_snapshot(tenant_id)
+    rows = list((st.get('realtime_signals') or {}).values())
+    rows.sort(key=lambda x: str(x.get('symbol') or ''))
+    return JSONResponse({
+        'tenant_id': tenant_id,
+        'running': tenant_running(tenant_id),
+        'threshold': int(cfg.get('ENTRY_SCORE_THRESHOLD', 65) or 65),
+        'soft_gate': bool(cfg.get('ENTRY_SCORE_SOFT_GATE', True)),
+        'signals': rows,
+    })
 
 
 @app.get('/api/leverage')
