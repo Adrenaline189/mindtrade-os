@@ -16,7 +16,7 @@ from bot.config_runtime import RUNTIME_CONFIG
 from bot.indicators import ema, rsi
 from bot.paths import get_tenant_paths
 from bot.state import bot_state
-from bot.storage import count_entries_today_utc, init_db, log_trade
+from bot.storage import count_entries_today_utc, fetch_trade_results_since, init_db, log_trade
 from bot.tenant_context import default_tenant_id, tenant_scope
 
 load_dotenv()
@@ -153,6 +153,78 @@ def in_news_blackout(now_utc: datetime, ctx: EngineContext | None = None) -> boo
         except Exception:
             pass
     return False
+
+
+def _parse_session_windows_utc(raw: str) -> list[tuple[int, int]]:
+    windows = []
+    for part in str(raw or "").split(","):
+        piece = part.strip()
+        if not piece:
+            continue
+        try:
+            s, e = piece.split("-")
+            sh, eh = int(s), int(e)
+            if 0 <= sh <= 23 and 0 <= eh <= 23:
+                windows.append((sh, eh))
+        except Exception:
+            continue
+    return windows
+
+
+def is_session_open(now_utc: datetime, ctx: EngineContext | None = None) -> tuple[bool, str]:
+    cfg = _cfg(ctx)
+    if not bool(cfg.get("SESSION_FILTER_ENABLED", False)):
+        return True, "disabled"
+
+    windows_raw = cfg.get("SESSION_WINDOWS_UTC", "00-23")
+    windows = _parse_session_windows_utc(windows_raw)
+    if not windows:
+        return False, f"session_filter_invalid windows={windows_raw}"
+
+    hour = int(now_utc.hour)
+    for start_h, end_h in windows:
+        if start_h <= end_h:
+            if start_h <= hour <= end_h:
+                return True, "ok"
+        else:
+            if hour >= start_h or hour <= end_h:
+                return True, "ok"
+    return False, f"session_filter_closed hour={hour:02d} windows={windows_raw}"
+
+
+def refresh_loss_streak_state(state: dict, ctx: EngineContext | None = None):
+    tenant_id = (ctx.tenant_id if ctx else None)
+    last_id = int(state.get("loss_streak_last_trade_log_id", 0) or 0)
+
+    while True:
+        rows = fetch_trade_results_since(last_id=last_id, tenant_id=tenant_id, limit=300)
+        if not rows:
+            break
+        for row_id, result in rows:
+            last_id = int(row_id)
+            if result == "PAPER_SL":
+                state["loss_streak"] = int(state.get("loss_streak", 0) or 0) + 1
+                state["consecutive_loss"] = state["loss_streak"]
+            elif result in {"PAPER_TP1", "PAPER_TP2"}:
+                state["loss_streak"] = 0
+                state["consecutive_loss"] = 0
+
+    state["loss_streak_last_trade_log_id"] = last_id
+
+
+def effective_risk_per_trade(state: dict, ctx: EngineContext | None = None) -> float:
+    cfg = _cfg(ctx)
+    base_risk = float(cfg.get("RISK_PER_TRADE", 0.0) or 0.0)
+    loss_streak = int(state.get("loss_streak", 0) or 0)
+    enabled = bool(cfg.get("LOSS_STREAK_DOWNSHIFT_ENABLED", False))
+    trigger = int(cfg.get("LOSS_STREAK_TRIGGER", 2) or 2)
+    mult = float(cfg.get("LOSS_STREAK_RISK_MULT", 0.7) or 0.7)
+
+    risk = base_risk
+    if enabled and trigger > 0 and loss_streak >= trigger:
+        risk = base_risk * max(0.0, mult)
+    state["effective_risk_per_trade"] = risk
+    return risk
 
 
 def analyze_market(df, ctx: EngineContext | None = None):
@@ -293,7 +365,7 @@ def calc_trade(df, analysis, ctx: EngineContext | None = None):
         return None
     if sl_pct <= 0 or sl_pct > MAX_SL_PERCENT:
         return None
-    risk_money = EQUITY_USDT * cfg["RISK_PER_TRADE"]
+    risk_money = EQUITY_USDT * effective_risk_per_trade((ctx.state if ctx else bot_state), ctx=ctx)
     size = risk_money / (sl_pct / 100)
     if size < cfg.get("MIN_NOTIONAL_USDT", 10):
         return None
@@ -315,8 +387,12 @@ def can_enter_trade_now(state=None, ctx: EngineContext | None = None):
     cu = state.get("cooldown_until")
     if cu and datetime.utcnow() < cu:
         return False, "cooldown"
-    if in_news_blackout(datetime.utcnow(), ctx=ctx):
+    now_utc = datetime.utcnow()
+    if in_news_blackout(now_utc, ctx=ctx):
         return False, "news_blackout"
+    session_ok, session_reason = is_session_open(now_utc, ctx=ctx)
+    if not session_ok:
+        return False, session_reason
     return True, "ok"
 
 
@@ -519,6 +595,9 @@ def run_engine_for_tenant(tenant_id: str, stop_event=None, state=None, isolation
                     apply_leverage_settings(ctx=ctx)
                     leverage_applied = True
 
+                refresh_loss_streak_state(state, ctx=ctx)
+                effective_risk_per_trade(state, ctx=ctx)
+
                 if ctx.runtime_config.get("PANIC_STOP", False):
                     pass
                 else:
@@ -556,6 +635,8 @@ def run_engine_for_tenant(tenant_id: str, stop_event=None, state=None, isolation
                                 "score_threshold": threshold,
                                 "score_ok": score_ok,
                                 "soft_gate": soft_gate,
+                                "loss_streak": int(state.get("loss_streak", 0) or 0),
+                                "effective_risk_per_trade": float(state.get("effective_risk_per_trade") or ctx.runtime_config.get("RISK_PER_TRADE", 0.0)),
                             }
 
                             log = {
@@ -577,12 +658,12 @@ def run_engine_for_tenant(tenant_id: str, stop_event=None, state=None, isolation
                                         if trade:
                                             if ctx.runtime_config["MODE"] == "PAPER":
                                                 log["result"] = "ENTRY_PAPER"
-                                                log["note"] = f"entry={trade['entry']} sl={trade['sl']} tp1={trade['tp1']} tp2={trade['tp2']} score={score_data['score']} components={score_data['components']}"
+                                                log["note"] = f"entry={trade['entry']} sl={trade['sl']} tp1={trade['tp1']} tp2={trade['tp2']} score={score_data['score']} risk={state.get('effective_risk_per_trade')} loss_streak={state.get('loss_streak',0)} components={score_data['components']}"
                                                 touch_cooldown(state=state, ctx=ctx)
                                             else:
                                                 st = send_live_order(symbol, analysis["bias"], trade, ctx=ctx)
                                                 log["result"] = "ENTRY_LIVE" if st == "live_sent" else "BLOCKED"
-                                                log["note"] = f"{st} score={score_data['score']} components={score_data['components']}"
+                                                log["note"] = f"{st} score={score_data['score']} risk={state.get('effective_risk_per_trade')} loss_streak={state.get('loss_streak',0)} components={score_data['components']}"
                                                 if st == "live_sent":
                                                     touch_cooldown(state=state, ctx=ctx)
                                         else:

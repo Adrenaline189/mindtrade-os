@@ -186,6 +186,7 @@ def trade_summary(trades):
 
 def tenant_metrics(tenant_id: str, symbol: str | None = None):
     cfg = tenant_services.get_runtime_config(tenant_id)
+    st = engine_manager.state_snapshot(tenant_id)
     trades = load_trades(tenant_id=tenant_id, limit=5000)
     if symbol:
         trades = [t for t in trades if t.get('symbol') == symbol]
@@ -229,6 +230,8 @@ def tenant_metrics(tenant_id: str, symbol: str | None = None):
         'total_r': round(total_r, 4),
         'avg_r': round(avg_r, 4),
         'max_dd_r': round(max_dd, 4),
+        'loss_streak': int(st.get('loss_streak', 0) or 0),
+        'effective_risk_per_trade': float(st.get('effective_risk_per_trade') or cfg.get('RISK_PER_TRADE', 0.0) or 0.0),
     }
 
 
@@ -370,6 +373,8 @@ def api_summary(request: Request, symbol: str | None = None):
         'open_positions_count': data['open_positions_count'],
         'open_positions': data['open_positions'],
         'exposure_abs_upnl': data['exposure_abs_upnl'],
+        'loss_streak': data['loss_streak'],
+        'effective_risk_per_trade': data['effective_risk_per_trade'],
     })
 
 
@@ -386,6 +391,8 @@ def api_tenant_summary(tenant_id: str, symbol: str | None = None):
         'open_positions_count': data['open_positions_count'],
         'open_positions': data['open_positions'],
         'exposure_abs_upnl': data['exposure_abs_upnl'],
+        'loss_streak': data['loss_streak'],
+        'effective_risk_per_trade': data['effective_risk_per_trade'],
     })
 
 

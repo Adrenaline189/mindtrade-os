@@ -67,3 +67,13 @@ def count_entries_today_utc(tenant_id: str | None = None) -> int:
             (today,),
         )
         return int(cur.fetchone()[0])
+
+
+def fetch_trade_results_since(last_id: int, tenant_id: str | None = None, limit: int = 200):
+    db_path = _db_path(tenant_id)
+    with sqlite3.connect(db_path) as conn:
+        cur = conn.execute(
+            "SELECT id, result FROM trade_logs WHERE id > ? ORDER BY id ASC LIMIT ?",
+            (int(last_id or 0), int(limit or 200)),
+        )
+        return cur.fetchall()

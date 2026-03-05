@@ -10,6 +10,9 @@ def create_bot_state() -> dict:
         "today": date.today().isoformat(),
         "daily_loss_r": 0.0,
         "consecutive_loss": 0,
+        "loss_streak": 0,
+        "loss_streak_last_trade_log_id": 0,
+        "effective_risk_per_trade": None,
         "cooldown_until": None,
 
         "usdt_start_of_day": None,

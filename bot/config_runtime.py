@@ -41,6 +41,15 @@ RUNTIME_CONFIG = {
         "12:25-12:45",
     ],
 
+    # Session filter (UTC hour windows, e.g. "00-04,12-16")
+    "SESSION_FILTER_ENABLED": False,
+    "SESSION_WINDOWS_UTC": "00-23",
+
+    # Lose-streak risk downshift
+    "LOSS_STREAK_DOWNSHIFT_ENABLED": False,
+    "LOSS_STREAK_TRIGGER": 2,
+    "LOSS_STREAK_RISK_MULT": 0.7,
+
     # Alerts
     "TELEGRAM_ALERTS": True,
     "ALERT_ON_ENTRY": True,
