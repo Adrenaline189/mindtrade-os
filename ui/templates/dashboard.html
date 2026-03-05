@@ -99,6 +99,7 @@
         <li><b>Leverage by symbol</b>: ตั้งแยกรายเหรียญ เช่น BTC/USDT:5,ETH/USDT:3 (ถ้ามี จะทับค่า Leverage ด้านบน)</li>
         <li><b>Max trades/day</b>: จำกัดจำนวนไม้ต่อวัน</li>
         <li><b>Cooldown minutes</b>: เวลาพักก่อนเข้าไม้ใหม่</li>
+        <li><b>Order Size (USDT)</b>: ขนาดไม้ต่อออเดอร์ (หน่วย USDT)</li>
         <li><b>Daily loss cap %</b>: ขาดทุนรวมต่อวันสูงสุดก่อนระบบกันเทรด</li>
         <li><b>Symbols</b>: รายชื่อเหรียญที่ให้ระบบวิ่ง คั่นด้วยคอมม่า</li>
       </ul>
@@ -156,6 +157,7 @@
         <label>Leverage by symbol (e.g. BTC/USDT:5,ETH/USDT:3)</label><input name="leverage_by_symbol" value="{% for k,v in cfg.LEVERAGE_BY_SYMBOL.items() %}{{k}}:{{v}}{% if not loop.last %},{% endif %}{% endfor %}">
         <label>Max trades/day</label><input name="max_trades" value="{{ cfg.MAX_TRADES_PER_DAY }}">
         <label>Cooldown minutes</label><input name="cooldown_minutes" value="{{ cfg.COOLDOWN_MINUTES }}">
+        <label>Order Size (USDT)</label><input name="order_size_usdt" value="{{ cfg.ORDER_SIZE_USDT or 10 }}" min="5" step="1">
         <label>Daily loss cap %</label><input name="daily_loss_cap_pct" value="{{ cfg.DAILY_LOSS_CAP_PCT }}">
         <label>Entry score threshold (0-100)</label><input name="entry_score_threshold" value="{{ cfg.ENTRY_SCORE_THRESHOLD or 65 }}">
         <label>Score soft gate</label><select name="entry_score_soft_gate"><option value="true" {% if cfg.ENTRY_SCORE_SOFT_GATE %}selected{% endif %}>enabled</option><option value="false" {% if not cfg.ENTRY_SCORE_SOFT_GATE %}selected{% endif %}>disabled</option></select>

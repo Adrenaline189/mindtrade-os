@@ -365,10 +365,17 @@ def calc_trade(df, analysis, ctx: EngineContext | None = None):
         return None
     if sl_pct <= 0 or sl_pct > MAX_SL_PERCENT:
         return None
-    risk_money = EQUITY_USDT * effective_risk_per_trade((ctx.state if ctx else bot_state), ctx=ctx)
-    size = risk_money / (sl_pct / 100)
-    if size < cfg.get("MIN_NOTIONAL_USDT", 10):
-        return None
+    fixed_order_usdt = float(cfg.get("ORDER_SIZE_USDT", 0) or 0)
+    if fixed_order_usdt > 0:
+        if fixed_order_usdt < float(cfg.get("MIN_NOTIONAL_USDT", 10) or 10):
+            return None
+        size = fixed_order_usdt / entry
+    else:
+        risk_money = EQUITY_USDT * effective_risk_per_trade((ctx.state if ctx else bot_state), ctx=ctx)
+        notional_size = risk_money / (sl_pct / 100)
+        if notional_size < float(cfg.get("MIN_NOTIONAL_USDT", 10) or 10):
+            return None
+        size = notional_size / entry
     return {
         "entry": round(entry, 2),
         "sl": round(sl, 2),
@@ -447,14 +454,14 @@ def normalize_order_amount(symbol: str, amount: float, ctx: EngineContext | None
 
 
 def margin_precheck_ok(symbol: str, qty: float, entry_price: float, ctx: EngineContext | None = None):
-    """Best-effort free margin pre-check to reduce -2019 errors."""
+    """Best-effort free margin pre-check with affordable qty downscale."""
     ex = _exchange(ctx)
     try:
         bal = ex.fetch_balance()
         usdt = (bal.get('USDT') or {}) if isinstance(bal, dict) else {}
         free = float(usdt.get('free') or 0)
     except Exception:
-        return True, 0.0, 0.0
+        return True, float(qty), 0.0, 0.0
 
     cfg = _cfg(ctx)
     default_lev = int(cfg.get('LEVERAGE', 5) or 5)
@@ -462,10 +469,28 @@ def margin_precheck_ok(symbol: str, qty: float, entry_price: float, ctx: EngineC
     lev = int(lev_map.get(symbol, default_lev) or default_lev)
     lev = max(1, lev)
 
-    notional = float(qty) * max(0.0, float(entry_price or 0.0))
-    required = notional / lev if lev else notional
-    buffer_required = required * 1.10
-    return free >= buffer_required, free, buffer_required
+    price = max(0.0, float(entry_price or 0.0))
+    if price <= 0:
+        return True, float(qty), free, 0.0
+
+    # Keep a safety reserve and cap usable margin to avoid over-sizing.
+    reserve = max(2.0, free * 0.10)
+    usable = max(0.0, free - reserve)
+
+    required = (float(qty) * price) / lev
+    if required <= usable:
+        return True, float(qty), free, required
+
+    affordable_qty = (usable * lev) / price if price > 0 else 0.0
+    try:
+        affordable_qty = float(ex.amount_to_precision(symbol, affordable_qty))
+    except Exception:
+        pass
+
+    if affordable_qty <= 0:
+        return False, 0.0, free, required
+
+    return True, affordable_qty, free, required
 
 
 def place_order_with_qty_retry(symbol: str, order_type: str, side: str, qty: float, *, params=None, max_attempts: int = 6, ctx: EngineContext | None = None):
@@ -509,10 +534,14 @@ def send_live_order(symbol: str, side: str, trade, ctx: EngineContext | None = N
     if reason:
         notify(f"⚠️ qty adjusted {symbol}: {raw_size} -> {size}", ctx=ctx)
 
-    ok_margin, free_margin, req_margin = margin_precheck_ok(symbol, size, float(trade.get("entry") or 0), ctx=ctx)
+    ok_margin, size_after_margin, free_margin, req_margin = margin_precheck_ok(symbol, size, float(trade.get("entry") or 0), ctx=ctx)
     if not ok_margin:
         notify(f"⚠️ {symbol} blocked: margin insufficient (free={free_margin:.2f} < required≈{req_margin:.2f})", force=True, ctx=ctx)
         return "blocked"
+
+    if size_after_margin < size:
+        notify(f"⚠️ {symbol} qty downscaled by margin: {size} -> {size_after_margin}", ctx=ctx)
+        size = size_after_margin
 
     _, filled_qty = place_order_with_qty_retry(symbol, "MARKET", order_side, size, ctx=ctx)
     place_order_with_qty_retry(symbol, "STOP_MARKET", close_side, filled_qty, params={"stopPrice": trade["sl"], "reduceOnly": True}, ctx=ctx)

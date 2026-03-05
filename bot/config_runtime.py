@@ -25,6 +25,7 @@ RUNTIME_CONFIG = {
     "MAX_TRADES_PER_DAY": 3,
     "COOLDOWN_MINUTES": 60,
     "MIN_NOTIONAL_USDT": 10,
+    "ORDER_SIZE_USDT": 10,
     "DAILY_LOSS_CAP_PCT": 3.0,
 
     # Entry quality filters

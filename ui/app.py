@@ -555,6 +555,7 @@ def update_config(
     allow_live: str = Form("true"),
     max_trades: int = Form(3),
     cooldown_minutes: int = Form(60),
+    order_size_usdt: float = Form(10.0),
     daily_loss_cap_pct: float = Form(3.0),
     entry_score_threshold: int = Form(65),
     entry_score_soft_gate: str = Form("true"),
@@ -572,6 +573,8 @@ def update_config(
             return RedirectResponse("/", status_code=303)
         if max_trades < 1 or cooldown_minutes < 0 or daily_loss_cap_pct <= 0:
             return RedirectResponse("/", status_code=303)
+        if order_size_usdt < 5 or order_size_usdt > 1000:
+            return RedirectResponse("/", status_code=303)
         if entry_score_threshold < 0 or entry_score_threshold > 100:
             return RedirectResponse("/", status_code=303)
 
@@ -585,6 +588,7 @@ def update_config(
         RUNTIME_CONFIG["ALLOW_LIVE_ORDERS"] = True
         RUNTIME_CONFIG["MAX_TRADES_PER_DAY"] = max_trades
         RUNTIME_CONFIG["COOLDOWN_MINUTES"] = cooldown_minutes
+        RUNTIME_CONFIG["ORDER_SIZE_USDT"] = float(order_size_usdt)
         RUNTIME_CONFIG["DAILY_LOSS_CAP_PCT"] = daily_loss_cap_pct
         RUNTIME_CONFIG["ENTRY_SCORE_THRESHOLD"] = int(entry_score_threshold)
         RUNTIME_CONFIG["ENTRY_SCORE_SOFT_GATE"] = str(entry_score_soft_gate).strip().lower() in {"1", "true", "yes", "on"}
