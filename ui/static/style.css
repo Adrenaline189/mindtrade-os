@@ -107,8 +107,8 @@ th { color: #bed0f3; font-size: 12px; text-transform: uppercase; letter-spacing:
 
 .tag { font-weight: 700; padding: 3px 8px; border-radius: 999px; font-size: 11px; display: inline-block; border: 1px solid transparent; }
 .ENTRY_PAPER, .ENTRY_LIVE, .ENTRY { background: rgba(55,224,138,.14); color: #8ef2bf; border-color: rgba(55,224,138,.28); }
-.PAPER_TP1, .PAPER_TP2 { background: rgba(110,168,255,.15); color: #a8ccff; border-color: rgba(110,168,255,.3); }
-.PAPER_SL, .BLOCKED { background: rgba(255,111,125,.15); color: #ffb6be; border-color: rgba(255,111,125,.3); }
+.PAPER_TP1, .PAPER_TP2, .LIVE_TP { background: rgba(110,168,255,.15); color: #a8ccff; border-color: rgba(110,168,255,.3); }
+.PAPER_SL, .LIVE_SL, .BLOCKED { background: rgba(255,111,125,.15); color: #ffb6be; border-color: rgba(255,111,125,.3); }
 .SKIP { background: rgba(255,191,102,.12); color: #ffd59e; border-color: rgba(255,191,102,.25); }
 
 .ok { color: var(--success); } .bad { color: var(--danger); } .warn { color: var(--warning); }
@@ -600,3 +600,12 @@ body {
     height: 68vh;
   }
 }
+
+
+/* leverage per-symbol toggle UI */
+.leverage-toggle-panel{display:grid;gap:8px;margin-top:8px}
+.lev-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--line,#2a3e68);border-radius:10px;background:rgba(255,255,255,.02)}
+.lev-left{display:flex;align-items:center;gap:8px;font-size:13px}
+.lev-right{display:flex;align-items:center;gap:6px}
+.lev-right input{width:76px}
+.lev-right.is-off{opacity:.45;filter:grayscale(.2)}

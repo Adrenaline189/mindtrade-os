@@ -148,8 +148,8 @@ def fetch_open_positions(tenant_id: str, symbols: list[str] | None = None):
 
 def trade_summary(trades):
     entry_keys = {"ENTRY", "ENTRY_PAPER", "ENTRY_LIVE"}
-    tp_keys = {"PAPER_TP1", "PAPER_TP2"}
-    sl_keys = {"PAPER_SL"}
+    tp_keys = {"PAPER_TP1", "PAPER_TP2", "LIVE_TP"}
+    sl_keys = {"PAPER_SL", "LIVE_SL"}
 
     counts = Counter(t.get("result", "") for t in trades)
     entries = sum(counts[k] for k in entry_keys)

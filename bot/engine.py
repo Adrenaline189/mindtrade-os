@@ -277,6 +277,18 @@ def analyze_market(df, ctx: EngineContext | None = None):
     }
 
 
+def _fetch_symbol_contracts(symbol: str, ctx: EngineContext | None = None) -> float:
+    ex = _exchange(ctx)
+    try:
+        positions = ex.fetch_positions([symbol])
+        for p in positions:
+            if str(p.get("symbol") or "").upper() == symbol.upper():
+                return float(p.get("contracts") or 0)
+    except Exception:
+        return 0.0
+    return 0.0
+
+
 def compute_realtime_score(analysis: dict, cfg: dict) -> dict:
     bias = analysis.get("bias", "NO TRADE")
     rsi_v = float(analysis.get("rsi") or 0.0)
@@ -442,6 +454,51 @@ def touch_cooldown(state=None, ctx: EngineContext | None = None):
     cfg = _cfg(ctx)
     state = state or (ctx.state if ctx else bot_state)
     state["cooldown_until"] = datetime.utcnow() + timedelta(minutes=int(cfg.get("COOLDOWN_MINUTES", 60)))
+
+
+def reconcile_live_close(symbol: str, analysis: dict, state: dict, ctx: EngineContext | None = None):
+    live_positions = state.setdefault("live_positions", {})
+    pos = live_positions.get(symbol)
+    if not pos:
+        return
+
+    contracts = _fetch_symbol_contracts(symbol, ctx=ctx)
+    if contracts != 0:
+        return
+
+    entry = float(pos.get("entry") or 0)
+    sl = float(pos.get("sl") or 0)
+    side = str(pos.get("side") or "")
+    close_px = float(analysis.get("close") or entry or 0)
+    if entry <= 0 or sl <= 0 or close_px <= 0:
+        live_positions.pop(symbol, None)
+        return
+
+    risk = abs(entry - sl)
+    if risk <= 0:
+        live_positions.pop(symbol, None)
+        return
+
+    if side == "LONG":
+        r = (close_px - entry) / risk
+    else:
+        r = (entry - close_px) / risk
+
+    result = "LIVE_TP" if r >= 0 else "LIVE_SL"
+    row = {
+        "time": datetime.utcnow(),
+        "symbol": symbol,
+        "bias": side,
+        "close": close_px,
+        "rsi": analysis.get("rsi"),
+        "golden_zone": False,
+        "result": result,
+        "note": f"r={round(r,3)} close={round(close_px,4)} entry={entry} sl={sl}",
+    }
+    log_to_csv(row, ctx=ctx)
+    log_trade(row, tenant_id=(ctx.tenant_id if ctx else None))
+    notify(f"✅ {result} {symbol} | r={round(r,3)}", ctx=ctx)
+    live_positions.pop(symbol, None)
 
 
 def normalize_order_amount(symbol: str, amount: float, ctx: EngineContext | None = None):
@@ -686,6 +743,8 @@ def run_engine_for_tenant(tenant_id: str, stop_event=None, state=None, isolation
                                 continue
                             last_map[symbol] = analysis["time"]
 
+                            reconcile_live_close(symbol, analysis, state, ctx=ctx)
+
                             score_data = compute_realtime_score(analysis, ctx.runtime_config)
                             threshold = int(ctx.runtime_config.get("ENTRY_SCORE_THRESHOLD", 65) or 65)
                             soft_gate = bool(ctx.runtime_config.get("ENTRY_SCORE_SOFT_GATE", True))
@@ -739,6 +798,14 @@ def run_engine_for_tenant(tenant_id: str, stop_event=None, state=None, isolation
                                                 log["result"] = "ENTRY_LIVE" if st == "live_sent" else "BLOCKED"
                                                 log["note"] = f"{st} score={score_data['score']} risk={state.get('effective_risk_per_trade')} loss_streak={state.get('loss_streak',0)} components={score_data['components']}"
                                                 if st == "live_sent":
+                                                    state.setdefault("live_positions", {})[symbol] = {
+                                                        "side": analysis["bias"],
+                                                        "entry": trade["entry"],
+                                                        "sl": trade["sl"],
+                                                        "tp1": trade["tp1"],
+                                                        "tp2": trade["tp2"],
+                                                        "opened_at": datetime.utcnow().isoformat(),
+                                                    }
                                                     touch_cooldown(state=state, ctx=ctx)
                                         else:
                                             log["result"] = "BLOCKED"
