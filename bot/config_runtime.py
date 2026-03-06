@@ -24,6 +24,7 @@ RUNTIME_CONFIG = {
     # Risk guards
     "MAX_TRADES_PER_DAY": 3,
     "COOLDOWN_MINUTES": 60,
+    "ONE_POSITION_AT_A_TIME": True,
     "MIN_NOTIONAL_USDT": 10,
     "MIN_NOTIONAL_BY_SYMBOL_USDT": {
         "BTC/USDT": 25,

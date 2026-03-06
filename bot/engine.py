@@ -396,7 +396,22 @@ def calc_trade(df, analysis, symbol: str | None = None, ctx: EngineContext | Non
     }
 
 
-def can_enter_trade_now(state=None, ctx: EngineContext | None = None):
+def has_open_position_now(symbol: str | None = None, ctx: EngineContext | None = None) -> bool:
+    ex = _exchange(ctx)
+    cfg = _cfg(ctx)
+    symbols = [symbol] if symbol else cfg.get("SYMBOLS", [])
+    try:
+        positions = ex.fetch_positions(symbols)
+        for p in positions:
+            contracts = float(p.get("contracts") or 0)
+            if contracts != 0:
+                return True
+    except Exception:
+        return False
+    return False
+
+
+def can_enter_trade_now(state=None, symbol: str | None = None, ctx: EngineContext | None = None):
     cfg = _cfg(ctx)
     state = state or (ctx.state if ctx else bot_state)
     tenant_id = (ctx.tenant_id if ctx else None)
@@ -405,6 +420,8 @@ def can_enter_trade_now(state=None, ctx: EngineContext | None = None):
     cu = state.get("cooldown_until")
     if cu and datetime.utcnow() < cu:
         return False, "cooldown"
+    if bool(cfg.get("ONE_POSITION_AT_A_TIME", True)) and has_open_position_now(symbol=symbol, ctx=ctx):
+        return False, "open_position_exists"
     now_utc = datetime.utcnow()
     if in_news_blackout(now_utc, ctx=ctx):
         return False, "news_blackout"
@@ -690,7 +707,7 @@ def run_engine_for_tenant(tenant_id: str, stop_event=None, state=None, isolation
                                     log["result"] = "BLOCKED"
                                     log["note"] = f"score_gate score={score_data['score']}<{threshold} components={score_data['components']}"
                                 else:
-                                    ok, reason = can_enter_trade_now(state=state, ctx=ctx)
+                                    ok, reason = can_enter_trade_now(state=state, symbol=symbol, ctx=ctx)
                                     if not ok:
                                         log["result"] = "BLOCKED"; log["note"] = f"{reason} score={score_data['score']}"
                                     else:
