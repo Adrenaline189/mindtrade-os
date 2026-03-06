@@ -351,7 +351,17 @@ def compute_realtime_score(analysis: dict, cfg: dict) -> dict:
 
 
 
-def calc_trade(df, analysis, ctx: EngineContext | None = None):
+def _min_notional_for_symbol(symbol: str, cfg: dict) -> float:
+    by_symbol = cfg.get("MIN_NOTIONAL_BY_SYMBOL_USDT", {}) or {}
+    if symbol in by_symbol:
+        try:
+            return float(by_symbol.get(symbol) or 0)
+        except Exception:
+            pass
+    return float(cfg.get("MIN_NOTIONAL_USDT", 10) or 10)
+
+
+def calc_trade(df, analysis, symbol: str | None = None, ctx: EngineContext | None = None):
     cfg = _cfg(ctx)
     entry = analysis["close"]
     bias = analysis["bias"]
@@ -365,15 +375,16 @@ def calc_trade(df, analysis, ctx: EngineContext | None = None):
         return None
     if sl_pct <= 0 or sl_pct > MAX_SL_PERCENT:
         return None
+    min_notional = _min_notional_for_symbol((symbol or '').strip().upper(), cfg)
+
     fixed_order_usdt = float(cfg.get("ORDER_SIZE_USDT", 0) or 0)
     if fixed_order_usdt > 0:
-        if fixed_order_usdt < float(cfg.get("MIN_NOTIONAL_USDT", 10) or 10):
-            return None
-        size = fixed_order_usdt / entry
+        effective_order_usdt = max(fixed_order_usdt, min_notional)
+        size = effective_order_usdt / entry
     else:
         risk_money = EQUITY_USDT * effective_risk_per_trade((ctx.state if ctx else bot_state), ctx=ctx)
         notional_size = risk_money / (sl_pct / 100)
-        if notional_size < float(cfg.get("MIN_NOTIONAL_USDT", 10) or 10):
+        if notional_size < min_notional:
             return None
         size = notional_size / entry
     return {
@@ -683,7 +694,7 @@ def run_engine_for_tenant(tenant_id: str, stop_event=None, state=None, isolation
                                     if not ok:
                                         log["result"] = "BLOCKED"; log["note"] = f"{reason} score={score_data['score']}"
                                     else:
-                                        trade = calc_trade(df, analysis, ctx=ctx)
+                                        trade = calc_trade(df, analysis, symbol=symbol, ctx=ctx)
                                         if trade:
                                             if ctx.runtime_config["MODE"] == "PAPER":
                                                 log["result"] = "ENTRY_PAPER"

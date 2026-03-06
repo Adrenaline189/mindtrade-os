@@ -25,6 +25,13 @@ RUNTIME_CONFIG = {
     "MAX_TRADES_PER_DAY": 3,
     "COOLDOWN_MINUTES": 60,
     "MIN_NOTIONAL_USDT": 10,
+    "MIN_NOTIONAL_BY_SYMBOL_USDT": {
+        "BTC/USDT": 25,
+        "ETH/USDT": 12,
+        "SOL/USDT": 10,
+        "BNB/USDT": 10,
+        "XRP/USDT": 10,
+    },
     "ORDER_SIZE_USDT": 10,
     "DAILY_LOSS_CAP_PCT": 3.0,
 
