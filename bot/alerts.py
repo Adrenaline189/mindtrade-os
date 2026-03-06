@@ -1,6 +1,10 @@
 import os
+import time
 import urllib.parse
 import urllib.request
+
+
+_ALERT_LAST_SENT_AT: dict[str, float] = {}
 
 
 def send_telegram_alert(text: str):
@@ -17,3 +21,14 @@ def send_telegram_alert(text: str):
             return resp.status == 200
     except Exception:
         return False
+
+
+def send_telegram_alert_throttled(text: str, *, dedupe_key: str, cooldown_sec: float = 600.0) -> bool:
+    now = time.time()
+    last = float(_ALERT_LAST_SENT_AT.get(dedupe_key, 0.0) or 0.0)
+    if now - last < max(1.0, float(cooldown_sec or 0.0)):
+        return False
+    ok = send_telegram_alert(text)
+    if ok:
+        _ALERT_LAST_SENT_AT[dedupe_key] = now
+    return ok

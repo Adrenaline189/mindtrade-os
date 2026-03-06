@@ -10,7 +10,7 @@ import ccxt
 import pandas as pd
 from dotenv import load_dotenv
 
-from bot.alerts import send_telegram_alert
+from bot.alerts import send_telegram_alert, send_telegram_alert_throttled
 from bot.config import EQUITY_USDT, MAX_SL_PERCENT
 from bot.config_runtime import RUNTIME_CONFIG
 from bot.indicators import ema, rsi
@@ -82,6 +82,13 @@ def notify(msg: str, force: bool = False, ctx: EngineContext | None = None):
     cfg = _cfg(ctx)
     if force or cfg.get("TELEGRAM_ALERTS", True):
         send_telegram_alert(msg)
+
+
+def notify_throttled(msg: str, *, dedupe_key: str, cooldown_sec: float = 900.0, ctx: EngineContext | None = None):
+    print(msg)
+    cfg = _cfg(ctx)
+    if cfg.get("TELEGRAM_ALERTS", True):
+        send_telegram_alert_throttled(msg, dedupe_key=dedupe_key, cooldown_sec=cooldown_sec)
 
 
 def notify_trade(symbol: str, result: str, note: str = "", ctx: EngineContext | None = None):
@@ -541,7 +548,12 @@ def place_order_with_qty_retry(symbol: str, order_type: str, side: str, qty: flo
                 notify(f"⚠️ {symbol} {order_type} qty retry {attempt}: reduce -> {current}", ctx=ctx)
                 continue
             if ('-2019' in msg) or ('margin is insufficient' in msg.lower()):
-                notify(f"⚠️ {symbol} margin insufficient while placing {order_type}", force=True, ctx=ctx)
+                notify_throttled(
+                    f"🚨 {symbol} margin insufficient while placing {order_type}",
+                    dedupe_key=f"margin_insufficient:{symbol}",
+                    cooldown_sec=900,
+                    ctx=ctx,
+                )
                 raise
             raise
     raise last_err if last_err else Exception('order_retry_failed')
@@ -564,7 +576,12 @@ def send_live_order(symbol: str, side: str, trade, ctx: EngineContext | None = N
 
     ok_margin, size_after_margin, free_margin, req_margin = margin_precheck_ok(symbol, size, float(trade.get("entry") or 0), ctx=ctx)
     if not ok_margin:
-        notify(f"⚠️ {symbol} blocked: margin insufficient (free={free_margin:.2f} < required≈{req_margin:.2f})", force=True, ctx=ctx)
+        notify_throttled(
+            f"🚨 {symbol} blocked: margin insufficient (free={free_margin:.2f} < required≈{req_margin:.2f})",
+            dedupe_key=f"margin_precheck:{symbol}",
+            cooldown_sec=900,
+            ctx=ctx,
+        )
         return "blocked"
 
     if size_after_margin < size:
@@ -744,7 +761,12 @@ def run_engine_for_tenant(tenant_id: str, stop_event=None, state=None, isolation
         except Exception as e:
             state["last_error"] = str(e)
             if ctx.runtime_config.get("ALERT_ON_ERROR", True):
-                notify(f"⚠️ Engine error: {e}", ctx=ctx)
+                notify_throttled(
+                    f"🚨 Engine error ({ctx.tenant_id}): {e}",
+                    dedupe_key=f"engine_error:{ctx.tenant_id}:{str(e)[:80]}",
+                    cooldown_sec=600,
+                    ctx=ctx,
+                )
         if stop_event is not None:
             if stop_event.wait(LOOP_INTERVAL):
                 break
