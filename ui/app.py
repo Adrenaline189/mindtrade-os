@@ -1,6 +1,7 @@
 import csv
 import re
 from collections import Counter
+import re
 from pathlib import Path
 from typing import Any
 
@@ -146,6 +147,25 @@ def fetch_open_positions(tenant_id: str, symbols: list[str] | None = None):
             pass
     return out
 
+def _extract_r_value(note: str, result: str) -> float | None:
+    m = re.search(r"\br=([-+]?\d+(?:\.\d+)?)", note or "")
+    if m:
+        try:
+            return float(m.group(1))
+        except Exception:
+            pass
+
+    # Fallback for paper/live events that do not persist explicit r= in note
+    fallback = {
+        "PAPER_SL": -1.0,
+        "LIVE_SL": -1.0,
+        "PAPER_TP1": 1.0,
+        "PAPER_TP2": 3.0,
+        "LIVE_TP": 1.0,
+    }
+    return fallback.get(result)
+
+
 def trade_summary(trades):
     entry_keys = {"ENTRY", "ENTRY_PAPER", "ENTRY_LIVE"}
     tp_keys = {"PAPER_TP1", "PAPER_TP2", "LIVE_TP"}
@@ -159,11 +179,10 @@ def trade_summary(trades):
     r_values = []
     for t in trades:
         note = str(t.get("note", ""))
-        if note.startswith("r="):
-            try:
-                r_values.append(float(note.replace("r=", "")))
-            except Exception:
-                pass
+        result = str(t.get("result", ""))
+        r = _extract_r_value(note, result)
+        if r is not None:
+            r_values.append(r)
 
     avg_r = round(sum(r_values) / len(r_values), 3) if r_values else 0.0
     total_r = round(sum(r_values), 3) if r_values else 0.0
@@ -197,11 +216,10 @@ def tenant_metrics(tenant_id: str, symbol: str | None = None):
     r_values = []
     for t in trades:
         note = str(t.get('note', ''))
-        if note.startswith('r='):
-            try:
-                r_values.append(float(note[2:]))
-            except Exception:
-                pass
+        result = str(t.get('result', ''))
+        r = _extract_r_value(note, result)
+        if r is not None:
+            r_values.append(r)
 
     total_r = sum(r_values) if r_values else 0.0
     avg_r = (total_r / len(r_values)) if r_values else 0.0
