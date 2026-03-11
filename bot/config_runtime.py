@@ -5,7 +5,7 @@ RUNTIME_CONFIG = {
     "RSI_MIN": 40,
     "RSI_MAX": 60,
     "GOLDEN_ZONE_DISTANCE": 0.8,
-    "RISK_PER_TRADE": 0.005,
+    "RISK_PER_TRADE": 0.007,
     "LEVERAGE": 5,
     "MARGIN_MODE": "cross",  # cross | isolated
     "LEVERAGE_BY_SYMBOL": {
@@ -26,7 +26,8 @@ RUNTIME_CONFIG = {
     # Risk guards
     "MAX_TRADES_PER_DAY": 3,
     "COOLDOWN_MINUTES": 60,
-    "ONE_POSITION_AT_A_TIME": True,
+    "ONE_POSITION_AT_A_TIME": False,
+    "MAX_OPEN_POSITIONS": 2,
     "MIN_NOTIONAL_USDT": 10,
     "MIN_NOTIONAL_BY_SYMBOL_USDT": {
         "BTC/USDT": 25,
@@ -34,6 +35,13 @@ RUNTIME_CONFIG = {
         "SOL/USDT": 10,
         "BNB/USDT": 10,
         "XRP/USDT": 10,
+    },
+    "SL_TP_BY_SYMBOL": {
+        "BTC/USDT": {"sl_pct": 1.8, "tp_pct": 3.0},
+        "ETH/USDT": {"sl_pct": 2.0, "tp_pct": 3.4},
+        "SOL/USDT": {"sl_pct": 2.8, "tp_pct": 4.8},
+        "BNB/USDT": {"sl_pct": 1.9, "tp_pct": 3.2},
+        "XRP/USDT": {"sl_pct": 2.5, "tp_pct": 4.2}
     },
     "ORDER_SIZE_USDT": 10,
     "DAILY_LOSS_CAP_PCT": 3.0,
@@ -60,6 +68,9 @@ RUNTIME_CONFIG = {
     "LOSS_STREAK_DOWNSHIFT_ENABLED": False,
     "LOSS_STREAK_TRIGGER": 2,
     "LOSS_STREAK_RISK_MULT": 0.7,
+    "LOSS_STREAK_COOLDOWN_ENABLED": True,
+    "LOSS_STREAK_COOLDOWN_TRIGGER": 3,
+    "LOSS_STREAK_COOLDOWN_MINUTES": 120,
 
     # Alerts
     "TELEGRAM_ALERTS": True,

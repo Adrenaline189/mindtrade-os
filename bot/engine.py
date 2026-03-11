@@ -200,6 +200,7 @@ def is_session_open(now_utc: datetime, ctx: EngineContext | None = None) -> tupl
 
 
 def refresh_loss_streak_state(state: dict, ctx: EngineContext | None = None):
+    cfg = _cfg(ctx)
     tenant_id = (ctx.tenant_id if ctx else None)
     last_id = int(state.get("loss_streak_last_trade_log_id", 0) or 0)
 
@@ -217,6 +218,20 @@ def refresh_loss_streak_state(state: dict, ctx: EngineContext | None = None):
                 state["consecutive_loss"] = 0
 
     state["loss_streak_last_trade_log_id"] = last_id
+
+    if bool(cfg.get("LOSS_STREAK_COOLDOWN_ENABLED", True)):
+        trigger = int(cfg.get("LOSS_STREAK_COOLDOWN_TRIGGER", 3) or 3)
+        cooldown_minutes = int(cfg.get("LOSS_STREAK_COOLDOWN_MINUTES", 120) or 120)
+        streak = int(state.get("loss_streak", 0) or 0)
+        applied_for = int(state.get("loss_streak_cooldown_applied_for", 0) or 0)
+        if trigger > 0 and streak >= trigger and streak != applied_for:
+            until = datetime.utcnow() + timedelta(minutes=max(1, cooldown_minutes))
+            current_until = state.get("cooldown_until")
+            if not current_until or until > current_until:
+                state["cooldown_until"] = until
+            state["loss_streak_cooldown_applied_for"] = streak
+        elif streak == 0:
+            state["loss_streak_cooldown_applied_for"] = 0
 
 
 def effective_risk_per_trade(state: dict, ctx: EngineContext | None = None) -> float:
@@ -384,17 +399,42 @@ def calc_trade(df, analysis, symbol: str | None = None, ctx: EngineContext | Non
     cfg = _cfg(ctx)
     entry = analysis["close"]
     bias = analysis["bias"]
-    if bias == "LONG":
-        sl = df["low"].iloc[-12:-2].min()
-        sl_pct = (entry - sl) / entry * 100
-    elif bias == "SHORT":
-        sl = df["high"].iloc[-12:-2].max()
-        sl_pct = (sl - entry) / entry * 100
+    symbol_key = (symbol or '').strip().upper()
+
+    sl_tp_map = cfg.get("SL_TP_BY_SYMBOL", {}) or {}
+    preset = sl_tp_map.get(symbol_key)
+
+    if preset:
+        sl_pct = float(preset.get("sl_pct") or 0)
+        tp_pct = float(preset.get("tp_pct") or 0)
+        if sl_pct <= 0 or tp_pct <= 0:
+            return None
+        if sl_pct > MAX_SL_PERCENT:
+            return None
+        if bias == "LONG":
+            sl = entry * (1 - sl_pct / 100)
+            tp1 = entry * (1 + tp_pct / 100)
+        elif bias == "SHORT":
+            sl = entry * (1 + sl_pct / 100)
+            tp1 = entry * (1 - tp_pct / 100)
+        else:
+            return None
+        tp2 = tp1
     else:
-        return None
-    if sl_pct <= 0 or sl_pct > MAX_SL_PERCENT:
-        return None
-    min_notional = _min_notional_for_symbol((symbol or '').strip().upper(), cfg)
+        if bias == "LONG":
+            sl = df["low"].iloc[-12:-2].min()
+            sl_pct = (entry - sl) / entry * 100
+        elif bias == "SHORT":
+            sl = df["high"].iloc[-12:-2].max()
+            sl_pct = (sl - entry) / entry * 100
+        else:
+            return None
+        if sl_pct <= 0 or sl_pct > MAX_SL_PERCENT:
+            return None
+        tp1 = entry * (1 + sl_pct / 100) if bias == "LONG" else entry * (1 - sl_pct / 100)
+        tp2 = entry * (1 + (sl_pct * 3) / 100) if bias == "LONG" else entry * (1 - (sl_pct * 3) / 100)
+
+    min_notional = _min_notional_for_symbol(symbol_key, cfg)
 
     fixed_order_usdt = float(cfg.get("ORDER_SIZE_USDT", 0) or 0)
     if fixed_order_usdt > 0:
@@ -409,25 +449,37 @@ def calc_trade(df, analysis, symbol: str | None = None, ctx: EngineContext | Non
     return {
         "entry": round(entry, 2),
         "sl": round(sl, 2),
-        "tp1": round(entry * (1 + sl_pct / 100), 2) if bias == "LONG" else round(entry * (1 - sl_pct / 100), 2),
-        "tp2": round(entry * (1 + (sl_pct * 3) / 100), 2) if bias == "LONG" else round(entry * (1 - (sl_pct * 3) / 100), 2),
+        "tp1": round(tp1, 2),
+        "tp2": round(tp2, 2),
         "size": round(size, 3),
     }
 
 
-def has_open_position_now(symbol: str | None = None, ctx: EngineContext | None = None) -> bool:
-    ex = _exchange(ctx)
+def count_open_positions_now(symbol: str | None = None, state: dict | None = None, ctx: EngineContext | None = None) -> int:
     cfg = _cfg(ctx)
+    mode = str(cfg.get("MODE", "PAPER")).upper()
+
+    if mode == "PAPER":
+        st = state or (ctx.state if ctx else bot_state)
+        paper_positions = st.get("paper_trade_by_symbol") or {}
+        return len([v for v in paper_positions.values() if v])
+
+    ex = _exchange(ctx)
     symbols = [symbol] if symbol else cfg.get("SYMBOLS", [])
+    count = 0
     try:
         positions = ex.fetch_positions(symbols)
         for p in positions:
             contracts = float(p.get("contracts") or 0)
             if contracts != 0:
-                return True
+                count += 1
     except Exception:
-        return False
-    return False
+        return 0
+    return count
+
+
+def has_open_position_now(symbol: str | None = None, ctx: EngineContext | None = None) -> bool:
+    return count_open_positions_now(symbol=symbol, ctx=ctx) > 0
 
 
 def can_enter_trade_now(state=None, symbol: str | None = None, ctx: EngineContext | None = None):
@@ -441,6 +493,12 @@ def can_enter_trade_now(state=None, symbol: str | None = None, ctx: EngineContex
         return False, "cooldown"
     if bool(cfg.get("ONE_POSITION_AT_A_TIME", True)) and has_open_position_now(symbol=symbol, ctx=ctx):
         return False, "open_position_exists"
+
+    max_open_positions = int(cfg.get("MAX_OPEN_POSITIONS", 1) or 1)
+    if max_open_positions > 0:
+        open_count = count_open_positions_now(state=state, ctx=ctx)
+        if open_count >= max_open_positions:
+            return False, f"max_open_positions:{open_count}/{max_open_positions}"
     now_utc = datetime.utcnow()
     if in_news_blackout(now_utc, ctx=ctx):
         return False, "news_blackout"
