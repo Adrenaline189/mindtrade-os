@@ -10,12 +10,14 @@ RUNTIME_CONFIG = {
     "MARGIN_MODE": "cross",  # cross | isolated
     "LEVERAGE_BY_SYMBOL": {
         "BTC/USDT": 5,
-        "ETH/USDT": 3,
-        "SOL/USDT": 2,
+        "ETH/USDT": 6,
+        "SOL/USDT": 7,
+        "BNB/USDT": 8,
+        "XRP/USDT": 10,
     },
 
     # Symbols
-    "SYMBOLS": ["BTC/USDT", "ETH/USDT", "SOL/USDT"],
+    "SYMBOLS": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT"],
 
     # MODE
     "MODE": "PAPER",            # PAPER | LIVE
