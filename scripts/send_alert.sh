@@ -2,6 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 MSG="${1:-Trading bot alert}"
+export MSG
 
 if [[ -f .env ]]; then
   set -a
