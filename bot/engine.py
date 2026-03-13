@@ -18,6 +18,8 @@ from bot.paths import get_tenant_paths
 from bot.state import bot_state
 from bot.storage import count_entries_today_utc, fetch_trade_results_since, init_db, log_trade
 from bot.tenant_context import default_tenant_id, tenant_scope
+from bot.tenant_store import get_primary_email_for_tenant
+from bot.user_api_store import get_user_api
 
 load_dotenv()
 
@@ -36,11 +38,23 @@ class EngineContext:
 
 
 
-def create_exchange_client():
+def create_exchange_client(tenant_id: str | None = None):
+    api_key = ""
+    api_secret = ""
+
+    tid = (tenant_id or default_tenant_id()).strip()
+    email = get_primary_email_for_tenant(tid)
+    if email:
+        api_key, api_secret = get_user_api(email, tenant_id=tid)
+
+    if not api_key or not api_secret:
+        api_key = os.getenv("BINANCE_API_KEY", "")
+        api_secret = os.getenv("BINANCE_API_SECRET", "")
+
     return ccxt.binance(
         {
-            "apiKey": os.getenv("BINANCE_API_KEY"),
-            "secret": os.getenv("BINANCE_API_SECRET"),
+            "apiKey": api_key,
+            "secret": api_secret,
             "enableRateLimit": True,
             "options": {"defaultType": "future"},
         }
@@ -48,10 +62,11 @@ def create_exchange_client():
 
 
 def create_engine_context(tenant_id: str, state: dict | None = None, runtime_config: dict | None = None, exchange_client=None):
+    tid = (tenant_id or default_tenant_id()).strip()
     return EngineContext(
-        tenant_id=(tenant_id or default_tenant_id()).strip(),
+        tenant_id=tid,
         runtime_config=runtime_config or deepcopy(RUNTIME_CONFIG),
-        exchange=exchange_client or create_exchange_client(),
+        exchange=exchange_client or create_exchange_client(tid),
         state=state or bot_state,
     )
 
