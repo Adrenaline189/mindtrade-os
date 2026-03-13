@@ -14,10 +14,15 @@ RUNTIME_CONFIG = {
         "SOL/USDT": 7,
         "BNB/USDT": 8,
         "XRP/USDT": 10,
+        "DOGE/USDT": 5,
+        "ADA/USDT": 5,
+        "AVAX/USDT": 5,
+        "LINK/USDT": 5,
+        "TRX/USDT": 5,
     },
 
     # Symbols
-    "SYMBOLS": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT"],
+    "SYMBOLS": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT", "DOGE/USDT", "ADA/USDT", "AVAX/USDT", "LINK/USDT", "TRX/USDT"],
 
     # MODE
     "MODE": "PAPER",            # PAPER | LIVE
@@ -35,13 +40,23 @@ RUNTIME_CONFIG = {
         "SOL/USDT": 10,
         "BNB/USDT": 10,
         "XRP/USDT": 10,
+        "DOGE/USDT": 10,
+        "ADA/USDT": 10,
+        "AVAX/USDT": 10,
+        "LINK/USDT": 10,
+        "TRX/USDT": 10,
     },
     "SL_TP_BY_SYMBOL": {
         "BTC/USDT": {"sl_pct": 1.8, "tp_pct": 3.0},
         "ETH/USDT": {"sl_pct": 2.0, "tp_pct": 3.4},
         "SOL/USDT": {"sl_pct": 2.8, "tp_pct": 4.8},
         "BNB/USDT": {"sl_pct": 1.9, "tp_pct": 3.2},
-        "XRP/USDT": {"sl_pct": 2.5, "tp_pct": 4.2}
+        "XRP/USDT": {"sl_pct": 2.5, "tp_pct": 4.2},
+        "DOGE/USDT": {"sl_pct": 2.2, "tp_pct": 3.6},
+        "ADA/USDT": {"sl_pct": 2.1, "tp_pct": 3.5},
+        "AVAX/USDT": {"sl_pct": 2.6, "tp_pct": 4.4},
+        "LINK/USDT": {"sl_pct": 2.3, "tp_pct": 3.8},
+        "TRX/USDT": {"sl_pct": 1.7, "tp_pct": 2.8}
     },
     "ORDER_SIZE_USDT": 10,
     "DAILY_LOSS_CAP_PCT": 3.0,
