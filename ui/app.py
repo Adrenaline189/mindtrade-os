@@ -1343,6 +1343,20 @@ def settings_api_save(request: Request, api_key: str = Form(...), api_secret: st
         return RedirectResponse('/?api_err=missing', status_code=303)
     tenant_id = current_tenant_id(request)
     set_user_api(email, api_key.strip(), api_secret.strip(), tenant_id=tenant_id)
+
+    # Apply immediately: refresh exchange handle + restart running worker to pick new credentials
+    try:
+        tenant_services.refresh_tenant_exchange(tenant_id)
+    except Exception:
+        pass
+
+    try:
+        if tenant_running(tenant_id):
+            engine_manager.stop(tenant_id, timeout_sec=8.0)
+            engine_manager.start(tenant_id)
+    except Exception:
+        pass
+
     return RedirectResponse('/?api_ok=saved', status_code=303)
 
 
