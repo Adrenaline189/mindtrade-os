@@ -1,7 +1,8 @@
 from contextlib import contextmanager
 from contextvars import ContextVar
+import os
 
-_DEFAULT_TENANT_ID = "default"
+_DEFAULT_TENANT_ID = (os.getenv("DEFAULT_TENANT_ID") or "default").strip() or "default"
 _current_tenant: ContextVar[str] = ContextVar("current_tenant", default=_DEFAULT_TENANT_ID)
 
 
