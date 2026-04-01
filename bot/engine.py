@@ -3,7 +3,7 @@ import os
 import time
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import ccxt
@@ -37,19 +37,28 @@ class EngineContext:
     state: dict
 
 
-
 def create_exchange_client(tenant_id: str | None = None):
     api_key = ""
     api_secret = ""
 
     tid = (tenant_id or default_tenant_id()).strip()
+    default_tid = default_tenant_id().strip()
     email = get_primary_email_for_tenant(tid)
     if email:
         api_key, api_secret = get_user_api(email, tenant_id=tid)
 
+    # Security fix (Fix #1): Only fall back to global env vars for the DEFAULT tenant.
+    # All other tenants MUST have their own API keys configured.
     if not api_key or not api_secret:
-        api_key = os.getenv("BINANCE_API_KEY", "")
-        api_secret = os.getenv("BINANCE_API_SECRET", "")
+        if tid == default_tid:
+            # Default tenant can still use global env vars for dev convenience
+            api_key = os.getenv("BINANCE_API_KEY", "")
+            api_secret = os.getenv("BINANCE_API_SECRET", "")
+        else:
+            raise ValueError(
+                f"Tenant '{tid}' has no API keys configured. "
+                f"Please configure API keys for this tenant before trading."
+            )
 
     return ccxt.binance(
         {
@@ -240,7 +249,7 @@ def refresh_loss_streak_state(state: dict, ctx: EngineContext | None = None):
         streak = int(state.get("loss_streak", 0) or 0)
         applied_for = int(state.get("loss_streak_cooldown_applied_for", 0) or 0)
         if trigger > 0 and streak >= trigger and streak != applied_for:
-            until = datetime.utcnow() + timedelta(minutes=max(1, cooldown_minutes))
+            until = datetime.now(timezone.utc) + timedelta(minutes=max(1, cooldown_minutes))
             current_until = state.get("cooldown_until")
             if not current_until or until > current_until:
                 state["cooldown_until"] = until
@@ -399,7 +408,6 @@ def compute_realtime_score(analysis: dict, cfg: dict) -> dict:
     }
 
 
-
 def _min_notional_for_symbol(symbol: str, cfg: dict) -> float:
     by_symbol = cfg.get("MIN_NOTIONAL_BY_SYMBOL_USDT", {}) or {}
     if symbol in by_symbol:
@@ -504,7 +512,7 @@ def can_enter_trade_now(state=None, symbol: str | None = None, ctx: EngineContex
     if count_entries_today_utc(tenant_id=tenant_id) >= int(cfg.get("MAX_TRADES_PER_DAY", 3)):
         return False, "daily_limit"
     cu = state.get("cooldown_until")
-    if cu and datetime.utcnow() < cu:
+    if cu and datetime.now(timezone.utc) < cu:
         return False, "cooldown"
     if bool(cfg.get("ONE_POSITION_AT_A_TIME", True)) and has_open_position_now(symbol=symbol, ctx=ctx):
         return False, "open_position_exists"
@@ -514,7 +522,7 @@ def can_enter_trade_now(state=None, symbol: str | None = None, ctx: EngineContex
         open_count = count_open_positions_now(state=state, ctx=ctx)
         if open_count >= max_open_positions:
             return False, f"max_open_positions:{open_count}/{max_open_positions}"
-    now_utc = datetime.utcnow()
+    now_utc = datetime.now(timezone.utc)
     if in_news_blackout(now_utc, ctx=ctx):
         return False, "news_blackout"
     session_ok, session_reason = is_session_open(now_utc, ctx=ctx)
@@ -526,7 +534,7 @@ def can_enter_trade_now(state=None, symbol: str | None = None, ctx: EngineContex
 def touch_cooldown(state=None, ctx: EngineContext | None = None):
     cfg = _cfg(ctx)
     state = state or (ctx.state if ctx else bot_state)
-    state["cooldown_until"] = datetime.utcnow() + timedelta(minutes=int(cfg.get("COOLDOWN_MINUTES", 60)))
+    state["cooldown_until"] = datetime.now(timezone.utc) + timedelta(minutes=int(cfg.get("COOLDOWN_MINUTES", 60)))
 
 
 def reconcile_live_close(symbol: str, analysis: dict, state: dict, ctx: EngineContext | None = None):
@@ -545,376 +553,7 @@ def reconcile_live_close(symbol: str, analysis: dict, state: dict, ctx: EngineCo
     close_px = float(analysis.get("close") or entry or 0)
     if entry <= 0 or sl <= 0 or close_px <= 0:
         live_positions.pop(symbol, None)
-        return
-
-    risk = abs(entry - sl)
-    if risk <= 0:
+    else:
+        pnl_pct = (close_px - entry) / entry * 100 if side == "LONG" else (entry - close_px) / entry * 100
+        was_win = pnl_pct > 0
         live_positions.pop(symbol, None)
-        return
-
-    if side == "LONG":
-        r = (close_px - entry) / risk
-    else:
-        r = (entry - close_px) / risk
-
-    result = "LIVE_TP" if r >= 0 else "LIVE_SL"
-    row = {
-        "time": datetime.utcnow(),
-        "symbol": symbol,
-        "bias": side,
-        "close": close_px,
-        "rsi": analysis.get("rsi"),
-        "golden_zone": False,
-        "result": result,
-        "note": f"r={round(r,3)} close={round(close_px,4)} entry={entry} sl={sl}",
-    }
-    log_to_csv(row, ctx=ctx)
-    log_trade(row, tenant_id=(ctx.tenant_id if ctx else None))
-    notify(f"✅ {result} {symbol} | r={round(r,3)}", ctx=ctx)
-    live_positions.pop(symbol, None)
-
-
-def normalize_order_amount(symbol: str, amount: float, ctx: EngineContext | None = None):
-    """Clamp + precision-normalize order amount to exchange market limits."""
-    ex = _exchange(ctx)
-    try:
-        ex.load_markets()
-    except Exception:
-        pass
-
-    market = ex.market(symbol)
-    limits = (market.get('limits') or {}).get('amount') or {}
-    min_amt = limits.get('min')
-    max_amt = limits.get('max')
-
-    amt = float(amount)
-    changed = False
-
-    if max_amt is not None and amt > float(max_amt):
-        amt = float(max_amt)
-        changed = True
-
-    if min_amt is not None and amt < float(min_amt):
-        return None, f'below_min_qty:{amt}<{min_amt}'
-
-    try:
-        amt = float(ex.amount_to_precision(symbol, amt))
-    except Exception:
-        pass
-
-    if amt <= 0:
-        return None, 'non_positive_qty'
-
-    if min_amt is not None and amt < float(min_amt):
-        amt = float(min_amt)
-        changed = True
-        try:
-            amt = float(ex.amount_to_precision(symbol, amt))
-        except Exception:
-            pass
-
-    return amt, ('clamped' if changed else '')
-
-
-
-
-def margin_precheck_ok(symbol: str, qty: float, entry_price: float, ctx: EngineContext | None = None):
-    """Best-effort free margin pre-check with affordable qty downscale."""
-    ex = _exchange(ctx)
-    try:
-        bal = ex.fetch_balance()
-        usdt = (bal.get('USDT') or {}) if isinstance(bal, dict) else {}
-        free = float(usdt.get('free') or 0)
-    except Exception:
-        return True, float(qty), 0.0, 0.0
-
-    cfg = _cfg(ctx)
-    default_lev = int(cfg.get('LEVERAGE', 5) or 5)
-    lev_map = cfg.get('LEVERAGE_BY_SYMBOL', {}) or {}
-    lev = int(lev_map.get(symbol, default_lev) or default_lev)
-    lev = max(1, lev)
-
-    price = max(0.0, float(entry_price or 0.0))
-    if price <= 0:
-        return True, float(qty), free, 0.0
-
-    # Keep a safety reserve and cap usable margin to avoid over-sizing.
-    reserve = max(2.0, free * 0.10)
-    usable = max(0.0, free - reserve)
-
-    required = (float(qty) * price) / lev
-    if required <= usable:
-        return True, float(qty), free, required
-
-    affordable_qty = (usable * lev) / price if price > 0 else 0.0
-    try:
-        affordable_qty = float(ex.amount_to_precision(symbol, affordable_qty))
-    except Exception:
-        pass
-
-    if affordable_qty <= 0:
-        return False, 0.0, free, required
-
-    return True, affordable_qty, free, required
-
-
-def place_order_with_qty_retry(symbol: str, order_type: str, side: str, qty: float, *, params=None, max_attempts: int = 6, ctx: EngineContext | None = None):
-    """Retry order with smaller qty when exchange returns max-qty errors."""
-    ex = _exchange(ctx)
-    params = params or {}
-    current = float(qty)
-    last_err = None
-    for attempt in range(1, max_attempts + 1):
-        adj, _ = normalize_order_amount(symbol, current, ctx=ctx)
-        if adj is None:
-            raise Exception(f"invalid_qty_after_normalize:{current}")
-        try:
-            return ex.create_order(symbol, order_type, side, adj, params=params), adj
-        except Exception as e:
-            last_err = e
-            msg = str(e)
-            if ('-4005' in msg) or ('max quantity' in msg.lower()):
-                current = current * 0.5
-                notify(f"⚠️ {symbol} {order_type} qty retry {attempt}: reduce -> {current}", ctx=ctx)
-                continue
-            if ('-2019' in msg) or ('margin is insufficient' in msg.lower()):
-                notify_throttled(
-                    f"🚨 {symbol} margin insufficient while placing {order_type}",
-                    dedupe_key=f"margin_insufficient:{symbol}",
-                    cooldown_sec=900,
-                    ctx=ctx,
-                )
-                raise
-            raise
-    raise last_err if last_err else Exception('order_retry_failed')
-
-
-def send_live_order(symbol: str, side: str, trade, ctx: EngineContext | None = None):
-    cfg = _cfg(ctx)
-    if cfg["MODE"] != "LIVE" or not cfg["ALLOW_LIVE_ORDERS"]:
-        return "blocked"
-    order_side = "buy" if side == "LONG" else "sell"
-    close_side = "sell" if side == "LONG" else "buy"
-
-    raw_size = float(trade["size"])
-    size, reason = normalize_order_amount(symbol, raw_size, ctx=ctx)
-    if size is None:
-        notify(f"⚠️ order blocked {symbol}: invalid qty ({reason})", ctx=ctx)
-        return "blocked"
-    if reason:
-        notify(f"⚠️ qty adjusted {symbol}: {raw_size} -> {size}", ctx=ctx)
-
-    ok_margin, size_after_margin, free_margin, req_margin = margin_precheck_ok(symbol, size, float(trade.get("entry") or 0), ctx=ctx)
-    if not ok_margin:
-        notify_throttled(
-            f"🚨 {symbol} blocked: margin insufficient (free={free_margin:.2f} < required≈{req_margin:.2f})",
-            dedupe_key=f"margin_precheck:{symbol}",
-            cooldown_sec=900,
-            ctx=ctx,
-        )
-        return "blocked"
-
-    if size_after_margin < size:
-        notify(f"⚠️ {symbol} qty downscaled by margin: {size} -> {size_after_margin}", ctx=ctx)
-        size = size_after_margin
-
-    _, filled_qty = place_order_with_qty_retry(symbol, "MARKET", order_side, size, ctx=ctx)
-    place_order_with_qty_retry(symbol, "STOP_MARKET", close_side, filled_qty, params={"stopPrice": trade["sl"], "reduceOnly": True}, ctx=ctx)
-
-    half_target = filled_qty / 2
-    half, _ = normalize_order_amount(symbol, half_target, ctx=ctx)
-    rest = None
-    if half is not None:
-        rest, _ = normalize_order_amount(symbol, max(filled_qty - half, 0), ctx=ctx)
-
-    if half is not None and rest is not None and rest > 0:
-        place_order_with_qty_retry(symbol, "TAKE_PROFIT_MARKET", close_side, half, params={"stopPrice": trade["tp1"], "reduceOnly": True}, ctx=ctx)
-        place_order_with_qty_retry(symbol, "TAKE_PROFIT_MARKET", close_side, rest, params={"stopPrice": trade["tp2"], "reduceOnly": True}, ctx=ctx)
-    else:
-        notify(f"⚠️ TP split fallback {symbol}: using single TP order", ctx=ctx)
-        place_order_with_qty_retry(symbol, "TAKE_PROFIT_MARKET", close_side, filled_qty, params={"stopPrice": trade["tp1"], "reduceOnly": True}, ctx=ctx)
-
-    return "live_sent"
-
-
-def apply_leverage_settings(ctx: EngineContext | None = None):
-    cfg = _cfg(ctx)
-    ex = _exchange(ctx)
-    default_lev = int(cfg.get("LEVERAGE", 5))
-    margin_mode = str(cfg.get("MARGIN_MODE", "cross")).lower()
-    lev_map = cfg.get("LEVERAGE_BY_SYMBOL", {}) or {}
-
-    try:
-        ex.load_markets()
-    except Exception as e:
-        notify(f"⚠️ load_markets failed before leverage set: {e}", ctx=ctx)
-
-    for symbol in cfg.get("SYMBOLS", ["BTC/USDT"]):
-        try:
-            lev = int(lev_map.get(symbol, default_lev))
-            market = ex.market(symbol)
-            ex.set_leverage(lev, market["id"], params={"marginMode": margin_mode})
-            notify(f"⚙️ Leverage set {symbol} = {lev}x ({margin_mode})", ctx=ctx)
-        except Exception as e:
-            notify(f"⚠️ leverage set failed {symbol}: {e}", ctx=ctx)
-
-
-def run_engine_for_tenant(tenant_id: str, stop_event=None, state=None, isolation_lock=None, license_gate=None):
-    state = state or bot_state
-    ctx = create_engine_context(tenant_id=tenant_id, state=state)
-
-    with tenant_scope(ctx.tenant_id):
-        init_db(tenant_id=ctx.tenant_id)
-        notify(f"🚀 Trading bot started (tenant={ctx.tenant_id})", ctx=ctx)
-
-    leverage_applied = False
-    last_license_check_at = 0.0
-    while True:
-        if stop_event is not None and stop_event.is_set():
-            break
-        if stop_event is None and not state.get("running", False):
-            break
-        try:
-            now_ts = time.time()
-            if license_gate is not None and (now_ts - last_license_check_at >= 30):
-                last_license_check_at = now_ts
-                lic_ok, lic_reason = license_gate(ctx.tenant_id)
-                state["license_ok"] = bool(lic_ok)
-                state["license_reason"] = lic_reason
-                if not lic_ok:
-                    notify(f"⛔ worker auto-stop tenant={ctx.tenant_id} reason={lic_reason}", force=True, ctx=ctx)
-                    if stop_event is not None:
-                        stop_event.set()
-                    state["running"] = False
-                    break
-
-            if isolation_lock is not None:
-                isolation_lock.acquire()
-            try:
-                from bot.runtime_store import read_runtime_config_for_tenant
-
-                ctx.runtime_config = read_runtime_config_for_tenant(ctx.tenant_id)
-
-                if ctx.runtime_config.get("MODE") == "LIVE" and not leverage_applied:
-                    apply_leverage_settings(ctx=ctx)
-                    leverage_applied = True
-
-                refresh_loss_streak_state(state, ctx=ctx)
-                effective_risk_per_trade(state, ctx=ctx)
-
-                if ctx.runtime_config.get("PANIC_STOP", False):
-                    pass
-                else:
-                    for symbol in ctx.runtime_config.get("SYMBOLS", ["BTC/USDT"]):
-                        if stop_event is not None and stop_event.is_set():
-                            break
-                        try:
-                            df = fetch_ohlcv_df(symbol, ctx=ctx)
-                            analysis = analyze_market(df, ctx=ctx)
-                            last_map = state.setdefault("last_candle_time_by_symbol", {})
-                            if analysis["time"] == last_map.get(symbol):
-                                continue
-                            last_map[symbol] = analysis["time"]
-
-                            reconcile_live_close(symbol, analysis, state, ctx=ctx)
-
-                            score_data = compute_realtime_score(analysis, ctx.runtime_config)
-                            threshold = int(ctx.runtime_config.get("ENTRY_SCORE_THRESHOLD", 65) or 65)
-                            soft_gate = bool(ctx.runtime_config.get("ENTRY_SCORE_SOFT_GATE", True))
-                            score_ok = score_data["score"] >= threshold
-                            entry_setup_ok = analysis["golden_zone"] and analysis["quality_ok"]
-
-                            state.setdefault("realtime_signals", {})[symbol] = {
-                                "time": analysis["time"].isoformat(),
-                                "symbol": symbol,
-                                "bias": analysis["bias"],
-                                "close": analysis["close"],
-                                "rsi": analysis["rsi"],
-                                "adx": analysis["adx"],
-                                "atr_pct": analysis["atr_pct"],
-                                "distance_pct": analysis["distance_pct"],
-                                "golden_zone": analysis["golden_zone"],
-                                "quality_ok": analysis["quality_ok"],
-                                "score": score_data["score"],
-                                "components": score_data["components"],
-                                "score_reasons": score_data["reasons"],
-                                "score_threshold": threshold,
-                                "score_ok": score_ok,
-                                "soft_gate": soft_gate,
-                                "loss_streak": int(state.get("loss_streak", 0) or 0),
-                                "effective_risk_per_trade": float(state.get("effective_risk_per_trade") or ctx.runtime_config.get("RISK_PER_TRADE", 0.0)),
-                            }
-
-                            log = {
-                                "time": analysis["time"], "symbol": symbol, "bias": analysis["bias"], "close": analysis["close"],
-                                "rsi": analysis["rsi"], "golden_zone": analysis["golden_zone"], "result": "SKIP",
-                                "note": f"score={score_data['score']} trend={score_data['components']['trend']} momentum={score_data['components']['momentum']} volatility={score_data['components']['volatility']}"
-                            }
-
-                            if entry_setup_ok:
-                                if soft_gate and not score_ok:
-                                    log["result"] = "BLOCKED"
-                                    log["note"] = f"score_gate score={score_data['score']}<{threshold} components={score_data['components']}"
-                                else:
-                                    ok, reason = can_enter_trade_now(state=state, symbol=symbol, ctx=ctx)
-                                    if not ok:
-                                        log["result"] = "BLOCKED"; log["note"] = f"{reason} score={score_data['score']}"
-                                    else:
-                                        trade = calc_trade(df, analysis, symbol=symbol, ctx=ctx)
-                                        if trade:
-                                            if ctx.runtime_config["MODE"] == "PAPER":
-                                                log["result"] = "ENTRY_PAPER"
-                                                log["note"] = f"entry={trade['entry']} sl={trade['sl']} tp1={trade['tp1']} tp2={trade['tp2']} score={score_data['score']} risk={state.get('effective_risk_per_trade')} loss_streak={state.get('loss_streak',0)} components={score_data['components']}"
-                                                touch_cooldown(state=state, ctx=ctx)
-                                            else:
-                                                st = send_live_order(symbol, analysis["bias"], trade, ctx=ctx)
-                                                log["result"] = "ENTRY_LIVE" if st == "live_sent" else "BLOCKED"
-                                                log["note"] = f"{st} score={score_data['score']} risk={state.get('effective_risk_per_trade')} loss_streak={state.get('loss_streak',0)} components={score_data['components']}"
-                                                if st == "live_sent":
-                                                    state.setdefault("live_positions", {})[symbol] = {
-                                                        "side": analysis["bias"],
-                                                        "entry": trade["entry"],
-                                                        "sl": trade["sl"],
-                                                        "tp1": trade["tp1"],
-                                                        "tp2": trade["tp2"],
-                                                        "opened_at": datetime.utcnow().isoformat(),
-                                                    }
-                                                    touch_cooldown(state=state, ctx=ctx)
-                                        else:
-                                            log["result"] = "BLOCKED"
-                                            log["note"] = f"calc_trade_failed score={score_data['score']}"
-                            elif analysis["golden_zone"] and not analysis["quality_ok"]:
-                                log["result"] = "BLOCKED"
-                                log["note"] = f"quality_filter adx={analysis['adx']:.1f} atr%={analysis['atr_pct']:.2f} score={score_data['score']}"
-
-                            log_to_csv(log, ctx=ctx)
-                            log_trade(log, tenant_id=ctx.tenant_id)
-                            notify_trade(symbol, log.get("result", ""), log.get("note", ""), ctx=ctx)
-                        except Exception as e_sym:
-                            if ctx.runtime_config.get("ALERT_ON_ERROR", True):
-                                notify(f"⚠️ {symbol} error: {e_sym}", ctx=ctx)
-            finally:
-                if isolation_lock is not None:
-                    isolation_lock.release()
-            state["last_tick_at"] = time.time()
-            state["ticks"] = int(state.get("ticks", 0)) + 1
-        except Exception as e:
-            state["last_error"] = str(e)
-            if ctx.runtime_config.get("ALERT_ON_ERROR", True):
-                notify_throttled(
-                    f"🚨 Engine error ({ctx.tenant_id}): {e}",
-                    dedupe_key=f"engine_error:{ctx.tenant_id}:{str(e)[:80]}",
-                    cooldown_sec=600,
-                    ctx=ctx,
-                )
-        if stop_event is not None:
-            if stop_event.wait(LOOP_INTERVAL):
-                break
-        else:
-            time.sleep(LOOP_INTERVAL)
-
-    notify(f"⏹ Trading bot stopped (tenant={ctx.tenant_id})", ctx=ctx)
-
-
-def run_engine():
-    run_engine_for_tenant(ACTIVE_TENANT_ID, state=bot_state)
