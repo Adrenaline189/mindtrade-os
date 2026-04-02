@@ -394,7 +394,12 @@ def is_processed_event(event_id: str) -> bool:
 
 def verify_binancepay_signature(payload_bytes: bytes, signature: str | None, secret: str) -> bool:
     if not secret:
-        return True
+        # Security fix (Fix #2): If secret is not configured, REJECT all webhooks.
+        # Admin MUST set BINANCE_PAY_WEBHOOK_SECRET in production.
+        raise ValueError(
+            "BINANCE_PAY_WEBHOOK_SECRET is not configured. "
+            "Webhook verification is disabled — this is insecure for production."
+        )
     got = (signature or '').strip().lower()
     if not got:
         return False
