@@ -5,8 +5,10 @@ import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from bot.paths import get_license_root
+
 ROOT = Path(__file__).resolve().parents[1]
-DB = ROOT / 'licenses' / 'licenses.json'
+DB = get_license_root() / 'licenses.json'
 
 PLAN_CONFIG = {
     'starter': {'days': 30, 'max_devices': 1},

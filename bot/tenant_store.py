@@ -3,10 +3,12 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from bot.paths import get_license_root
+
 from bot.tenant_context import default_tenant_id
 
 ROOT = Path(__file__).resolve().parents[1]
-DB = ROOT / "licenses" / "tenants.json"
+DB = get_license_root() / "tenants.json"
 
 
 def _load():
