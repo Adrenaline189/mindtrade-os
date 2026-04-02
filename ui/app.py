@@ -1,0 +1,1388 @@
+import csv
+import re
+from collections import Counter
+import re
+from pathlib import Path
+from typing import Any
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, Form, Request, Header, HTTPException
+from fastapi.responses import JSONResponse, RedirectResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
+
+from bot.config_runtime import RUNTIME_CONFIG
+from bot.engine import apply_leverage_settings
+from bot.engine_manager import engine_manager
+from bot.license import license_ok
+from bot.license_service import (
+    issue_license,
+    list_licenses,
+    record_payment,
+    has_payment_event,
+    set_license_active,
+    delete_license,
+    renew_license,
+    find_licenses,
+    list_payments_for_license,
+    create_payment_order,
+    get_payment_order,
+    list_payment_orders,
+    update_payment_order_status,
+    activate_or_renew_license_by_order,
+    is_processed_event,
+    mark_processed_event,
+    verify_binancepay_signature,
+)
+from bot.auth_service import create_user, verify_user, resolve_user_tenant
+from bot.paths import get_tenant_paths
+from bot.runtime_store import load_runtime_config, save_runtime_config
+from bot.tenant_services import tenant_services
+from bot.tenant_context import default_tenant_id, tenant_scope
+from bot.tenant_store import get_tenant_for_user, list_tenants
+from bot.user_api_store import set_user_api, has_user_api, get_user_api
+
+
+def _license_reason_message(reason: str) -> str:
+    mapping = {
+        'valid': 'license valid',
+        'default_tenant': 'default tenant allowed without mapped email',
+        'tenant_email_not_found': 'tenant has no mapped owner email',
+        'license_not_found': 'no license found for tenant owner',
+        'suspended': 'license is suspended by admin',
+        'expired': 'license is expired',
+        'invalid_expiry': 'license expiry format invalid',
+    }
+    return mapping.get((reason or '').strip(), reason or 'unknown')
+
+load_dotenv()
+
+app = FastAPI(title="MindTrade OS")
+app.add_middleware(SessionMiddleware, secret_key=__import__('os').getenv('SESSION_SECRET', 'mindtrade-dev-secret'))
+BASE_DIR = Path(__file__).resolve().parents[1]
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "ui" / "static")), name="static")
+templates = Jinja2Templates(directory=str(BASE_DIR / "ui" / "templates"))
+# Load default tenant config at boot (request handlers switch by tenant context)
+load_runtime_config(default_tenant_id())
+
+# Force LIVE-only operation
+RUNTIME_CONFIG["MODE"] = "LIVE"
+RUNTIME_CONFIG["ALLOW_LIVE_ORDERS"] = True
+
+
+@app.on_event('startup')
+def startup_default_worker():
+    import os
+    auto_start = os.getenv('AUTO_START_DEFAULT_WORKER', '1').strip().lower() not in {'0', 'false', 'no'}
+    if not auto_start:
+        return
+    try:
+        engine_manager.start(default_tenant_id())
+    except Exception:
+        pass
+
+
+PLAN_PRICING = {
+    'starter': {'amount': 29.0, 'currency': 'USDT', 'days': 30},
+    'pro': {'amount': 79.0, 'currency': 'USDT', 'days': 30},
+}
+
+
+def _current_email(request: Request) -> str:
+    return (request.session.get('user_email') or '').strip().lower() if hasattr(request, 'session') else ''
+
+
+def current_tenant_id(request: Request | None = None) -> str:
+    if request is None:
+        return default_tenant_id()
+    if hasattr(request, 'session'):
+        tenant_id = (request.session.get('tenant_id') or '').strip()
+        if tenant_id:
+            return tenant_id
+        email = (request.session.get('user_email') or '').strip().lower()
+        tenant_id = get_tenant_for_user(email)
+        request.session['tenant_id'] = tenant_id
+        return tenant_id
+    return default_tenant_id()
+
+
+def tenant_running(tenant_id: str) -> bool:
+    return bool(engine_manager.status(tenant_id).get("running", False))
+
+
+def load_trades(tenant_id: str, limit: int | None = None):
+    trade_csv = get_tenant_paths(tenant_id)["trades_csv"]
+    if not trade_csv.exists():
+        return []
+    with trade_csv.open(newline="") as f:
+        rows = list(csv.DictReader(f))
+    if limit:
+        return rows[-limit:]
+    return rows
+
+
+
+
+def fetch_open_positions(tenant_id: str, symbols: list[str] | None = None):
+    out = []
+    cfg = tenant_services.get_runtime_config(tenant_id)
+    handle = tenant_services.exchange_for_tenant(tenant_id)
+    with handle.lock:
+        try:
+            positions = handle.exchange.fetch_positions(symbols or cfg.get('SYMBOLS', []))
+            for p in positions:
+                contracts = float(p.get('contracts') or 0)
+                if contracts == 0:
+                    continue
+                out.append({
+                    'symbol': p.get('symbol'),
+                    'side': p.get('side'),
+                    'contracts': contracts,
+                    'entryPrice': p.get('entryPrice'),
+                    'markPrice': p.get('markPrice'),
+                    'unrealizedPnl': p.get('unrealizedPnl'),
+                })
+        except Exception:
+            pass
+    return out
+
+def _extract_r_value(note: str, result: str) -> float | None:
+    m = re.search(r"\br=([-+]?\d+(?:\.\d+)?)", note or "")
+    if m:
+        try:
+            return float(m.group(1))
+        except Exception:
+            pass
+
+    # Fallback for paper/live events that do not persist explicit r= in note
+    fallback = {
+        "PAPER_SL": -1.0,
+        "LIVE_SL": -1.0,
+        "PAPER_TP1": 1.0,
+        "PAPER_TP2": 3.0,
+        "LIVE_TP": 1.0,
+    }
+    return fallback.get(result)
+
+
+def trade_summary(trades):
+    entry_keys = {"ENTRY", "ENTRY_PAPER", "ENTRY_LIVE"}
+    tp_keys = {"PAPER_TP1", "PAPER_TP2", "LIVE_TP"}
+    sl_keys = {"PAPER_SL", "LIVE_SL"}
+
+    counts = Counter(t.get("result", "") for t in trades)
+    entries = sum(counts[k] for k in entry_keys)
+    tps = sum(counts[k] for k in tp_keys)
+    sls = sum(counts[k] for k in sl_keys)
+
+    r_values = []
+    for t in trades:
+        note = str(t.get("note", ""))
+        result = str(t.get("result", ""))
+        r = _extract_r_value(note, result)
+        if r is not None:
+            r_values.append(r)
+
+    avg_r = round(sum(r_values) / len(r_values), 3) if r_values else 0.0
+    total_r = round(sum(r_values), 3) if r_values else 0.0
+    win_rate = round((tps / max(tps + sls, 1)) * 100, 2)
+
+    by_symbol = Counter(t.get("symbol", "-") for t in trades if t.get("symbol"))
+
+    return {
+        "entries": entries,
+        "tp_hits": tps,
+        "sl_hits": sls,
+        "win_rate": win_rate,
+        "avg_r": avg_r,
+        "total_r": total_r,
+        "blocked": counts.get("BLOCKED", 0),
+        "skips": counts.get("SKIP", 0),
+        "by_symbol": dict(by_symbol),
+    }
+
+
+def tenant_metrics(tenant_id: str, symbol: str | None = None):
+    cfg = tenant_services.get_runtime_config(tenant_id)
+    st = engine_manager.state_snapshot(tenant_id)
+    trades = load_trades(tenant_id=tenant_id, limit=5000)
+    if symbol:
+        trades = [t for t in trades if t.get('symbol') == symbol]
+    blocked_reasons = Counter((t.get('note') or '').split(':')[0] for t in trades if t.get('result') == 'BLOCKED')
+    positions = fetch_open_positions(tenant_id=tenant_id, symbols=cfg.get('SYMBOLS', []))
+    exposure = sum(abs(float(p.get('unrealizedPnl') or 0)) for p in positions)
+
+    r_values = []
+    for t in trades:
+        note = str(t.get('note', ''))
+        result = str(t.get('result', ''))
+        r = _extract_r_value(note, result)
+        if r is not None:
+            r_values.append(r)
+
+    total_r = sum(r_values) if r_values else 0.0
+    avg_r = (total_r / len(r_values)) if r_values else 0.0
+    eq = 0.0
+    peak = 0.0
+    max_dd = 0.0
+    for r in r_values:
+        eq += r
+        if eq > peak:
+            peak = eq
+        dd = peak - eq
+        if dd > max_dd:
+            max_dd = dd
+
+    return {
+        'summary': trade_summary(trades),
+        'running': tenant_running(tenant_id),
+        'mode': cfg['MODE'],
+        'symbol': symbol or 'ALL',
+        'tenant_id': tenant_id,
+        'blocked_reasons': dict(blocked_reasons),
+        'open_positions_count': len(positions),
+        'open_positions': positions,
+        'exposure_abs_upnl': round(exposure, 4),
+        'realized_trades': len(r_values),
+        'total_r': round(total_r, 4),
+        'avg_r': round(avg_r, 4),
+        'max_dd_r': round(max_dd, 4),
+        'loss_streak': int(st.get('loss_streak', 0) or 0),
+        'effective_risk_per_trade': float(st.get('effective_risk_per_trade') or cfg.get('RISK_PER_TRADE', 0.0) or 0.0),
+    }
+
+
+@app.get("/")
+def dashboard(request: Request):
+    tenant_id = current_tenant_id(request)
+    with tenant_scope(tenant_id):
+        load_runtime_config(tenant_id)
+        trades = load_trades(tenant_id=tenant_id, limit=300)
+        summary = trade_summary(trades)
+        email = (request.session.get('user_email') or '').strip().lower() if hasattr(request, 'session') else ''
+        return templates.TemplateResponse(
+            "dashboard.html",
+            {
+                "request": request,
+                "cfg": RUNTIME_CONFIG,
+                "running": tenant_running(tenant_id),
+                "trades": trades[-50:],
+                "summary": summary,
+                "tenant_id": tenant_id,
+                "has_user_api": has_user_api(email, tenant_id=tenant_id),
+            },
+        )
+
+
+@app.get('/health')
+def health():
+    lic_ok, lic_reason = license_ok()
+    workers = engine_manager.list_status()
+    cfg = tenant_services.get_runtime_config(default_tenant_id())
+    return {
+        'ok': True,
+        'running': any(w.get('running') for w in workers),
+        'active_tenant_id': engine_manager.active_tenant_id,
+        'workers': workers,
+        'mode': cfg.get('MODE', 'LIVE'),
+        'allow_live': bool(cfg.get('ALLOW_LIVE_ORDERS', True)),
+        'panic_stop': bool(cfg.get('PANIC_STOP', False)),
+        'symbols': cfg.get('SYMBOLS', []),
+        'license_ok': lic_ok,
+        'license_reason': lic_reason,
+    }
+
+
+@app.get('/admin/workers')
+def admin_workers():
+    return JSONResponse({'workers': engine_manager.list_status()})
+
+
+@app.get('/admin/workers/ui')
+@app.get('/admin/control')
+def admin_workers_ui(request: Request):
+    tenants = list_tenants()
+    statuses = {w.get('tenant_id'): w for w in engine_manager.list_status()}
+    licenses_by_email = {(x.get('email') or '').strip().lower(): x for x in list_licenses(5000)}
+    rows = []
+    for t in tenants:
+        tid = t.get('tenant_id')
+        st = statuses.get(tid) or engine_manager.status(tid)
+        emails = t.get('emails') or []
+        primary_email = (emails[0] if emails else '').strip().lower()
+        lic = licenses_by_email.get(primary_email)
+
+        plan = (lic or {}).get('plan', '-')
+        expires_at = (lic or {}).get('expires_at', '-')
+        license_token = (lic or {}).get('license_token', '')
+        api_status = False
+        if primary_email:
+            try:
+                api_status = bool(has_user_api(primary_email, tenant_id=tid))
+            except Exception:
+                api_status = False
+
+        rows.append({
+            'tenant_id': tid,
+            'name': t.get('name') or tid,
+            'emails': emails,
+            'primary_email': primary_email,
+            'plan': plan,
+            'expires_at': expires_at,
+            'license_token': license_token,
+            'api_ok': api_status,
+            'running': st.get('running', False),
+            'license_ok': st.get('license_ok', True),
+            'license_reason': st.get('license_reason', ''),
+            'license_reason_message': _license_reason_message(st.get('license_reason', '')),
+            'enforcement_reason': st.get('enforcement_reason', ''),
+            'stop_timed_out': st.get('stop_timed_out', False),
+            'last_stop_latency_sec': st.get('last_stop_latency_sec', 0.0),
+            'last_error': st.get('last_error', ''),
+            'crashed': st.get('crashed', False),
+            'tick_age_sec': st.get('tick_age_sec'),
+            'ticks': st.get('ticks', 0),
+        })
+    rows.sort(key=lambda x: x['tenant_id'])
+    return templates.TemplateResponse('workers_admin.html', {'request': request, 'rows': rows})
+
+
+@app.post('/admin/workers/start')
+def admin_workers_start(tenant_id: str = Form(...)):
+    started = engine_manager.start(tenant_id)
+    status = engine_manager.status(tenant_id)
+    reason = status.get('license_reason', '')
+    if started:
+        msg = 'worker started'
+        if status.get('already_running'):
+            msg = 'worker already running'
+    else:
+        msg = f"worker blocked by license gate: {_license_reason_message(reason)}"
+    return JSONResponse({'ok': True, 'started': started, 'message': msg, 'status': status})
+
+
+@app.post('/admin/workers/stop')
+def admin_workers_stop(tenant_id: str = Form(...), timeout_sec: float = Form(15.0)):
+    stopped = engine_manager.stop(tenant_id, timeout_sec=timeout_sec)
+    status = engine_manager.status(tenant_id)
+    msg = 'worker stop requested' if stopped else 'worker not running'
+    if status.get('stop_timed_out'):
+        msg = f"worker stop timeout after {status.get('stop_timeout_sec', timeout_sec)}s"
+    return JSONResponse({'ok': True, 'stopped': bool(stopped), 'message': msg, 'status': status})
+
+
+@app.get('/admin/workers/{tenant_id}')
+def admin_worker_status(tenant_id: str):
+    return JSONResponse(engine_manager.status(tenant_id))
+
+
+@app.get('/api/summary')
+def api_summary(request: Request, symbol: str | None = None):
+    tenant_id = current_tenant_id(request)
+    data = tenant_metrics(tenant_id=tenant_id, symbol=symbol)
+    return JSONResponse({
+        'summary': data['summary'],
+        'running': data['running'],
+        'mode': data['mode'],
+        'symbol': data['symbol'],
+        'tenant_id': data['tenant_id'],
+        'blocked_reasons': data['blocked_reasons'],
+        'open_positions_count': data['open_positions_count'],
+        'open_positions': data['open_positions'],
+        'exposure_abs_upnl': data['exposure_abs_upnl'],
+        'loss_streak': data['loss_streak'],
+        'effective_risk_per_trade': data['effective_risk_per_trade'],
+    })
+
+
+@app.get('/api/tenant/{tenant_id}/summary')
+def api_tenant_summary(tenant_id: str, symbol: str | None = None):
+    data = tenant_metrics(tenant_id=tenant_id, symbol=symbol)
+    return JSONResponse({
+        'summary': data['summary'],
+        'running': data['running'],
+        'mode': data['mode'],
+        'symbol': data['symbol'],
+        'tenant_id': data['tenant_id'],
+        'blocked_reasons': data['blocked_reasons'],
+        'open_positions_count': data['open_positions_count'],
+        'open_positions': data['open_positions'],
+        'exposure_abs_upnl': data['exposure_abs_upnl'],
+        'loss_streak': data['loss_streak'],
+        'effective_risk_per_trade': data['effective_risk_per_trade'],
+    })
+
+
+@app.get('/api/tenant/{tenant_id}/signals/realtime')
+def api_tenant_realtime_signals(tenant_id: str):
+    cfg = tenant_services.get_runtime_config(tenant_id)
+    st = engine_manager.state_snapshot(tenant_id)
+    rows = list((st.get('realtime_signals') or {}).values())
+    rows.sort(key=lambda x: str(x.get('symbol') or ''))
+    return JSONResponse({
+        'tenant_id': tenant_id,
+        'running': tenant_running(tenant_id),
+        'threshold': int(cfg.get('ENTRY_SCORE_THRESHOLD', 65) or 65),
+        'soft_gate': bool(cfg.get('ENTRY_SCORE_SOFT_GATE', True)),
+        'signals': rows,
+    })
+
+
+@app.get('/api/events')
+def api_events(request: Request, limit: int = 200):
+    tenant_id = current_tenant_id(request)
+    trades = load_trades(tenant_id=tenant_id, limit=limit)
+    return JSONResponse({'events': trades, 'tenant_id': tenant_id})
+
+
+@app.get('/api/chart')
+def api_chart(request: Request, limit: int = 200, symbol: str | None = None):
+    tenant_id = current_tenant_id(request)
+    cfg = tenant_services.get_runtime_config(tenant_id)
+    symbols = [symbol] if symbol else list(cfg.get('SYMBOLS', []))
+    symbols = symbols[:3] if symbols else ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
+
+    try:
+        handle = tenant_services.exchange_for_tenant(tenant_id)
+        with handle.lock:
+            handle.exchange.load_markets()
+            raw = {}
+            ts_union = set()
+            for sym in symbols:
+                ohlcv = handle.exchange.fetch_ohlcv(sym, timeframe='5m', limit=limit)
+                raw[sym] = ohlcv
+                for row in ohlcv:
+                    ts_union.add(int(row[0]))
+
+        ts_sorted = sorted(ts_union)
+        labels = [__import__('datetime').datetime.utcfromtimestamp(t/1000).strftime('%H:%M') for t in ts_sorted]
+
+        series = {}
+        for sym in symbols:
+            idx = {int(r[0]): float(r[4]) for r in raw.get(sym, [])}
+            series[sym] = [idx.get(t) for t in ts_sorted]
+
+        return JSONResponse({'labels': labels, 'series': series, 'source': 'binance_ohlcv'})
+    except Exception:
+        trades = load_trades(tenant_id=tenant_id, limit=limit)
+        if symbol:
+            trades = [t for t in trades if t.get('symbol') == symbol]
+        labels, prices, markers = [], [], []
+        for t in trades:
+            labels.append(t.get('time'))
+            try:
+                prices.append(float(t.get('close') or 0))
+            except Exception:
+                prices.append(None)
+            markers.append(t.get('result'))
+        return JSONResponse({'labels': labels, 'prices': prices, 'markers': markers, 'source': 'local_trades'})
+
+
+@app.get('/api/performance')
+def api_performance(request: Request):
+    tenant_id = current_tenant_id(request)
+    data = tenant_metrics(tenant_id=tenant_id)
+    return JSONResponse({
+        'tenant_id': data['tenant_id'],
+        'realized_trades': data['realized_trades'],
+        'total_r': data['total_r'],
+        'avg_r': data['avg_r'],
+        'max_dd_r': data['max_dd_r'],
+    })
+
+
+@app.get('/api/tenant/{tenant_id}/performance')
+def api_tenant_performance(tenant_id: str):
+    data = tenant_metrics(tenant_id=tenant_id)
+    return JSONResponse({
+        'tenant_id': data['tenant_id'],
+        'realized_trades': data['realized_trades'],
+        'total_r': data['total_r'],
+        'avg_r': data['avg_r'],
+        'max_dd_r': data['max_dd_r'],
+    })
+
+
+@app.get('/api/pnl')
+def api_pnl(request: Request):
+    tenant_id = current_tenant_id(request)
+    data = tenant_metrics(tenant_id=tenant_id)
+    return JSONResponse({
+        'tenant_id': data['tenant_id'],
+        'total_r': data['total_r'],
+        'avg_r': data['avg_r'],
+        'max_dd_r': data['max_dd_r'],
+        'realized_trades': data['realized_trades'],
+        'exposure_abs_upnl': data['exposure_abs_upnl'],
+    })
+
+
+@app.get('/api/tenant/{tenant_id}/pnl')
+def api_tenant_pnl(tenant_id: str):
+    data = tenant_metrics(tenant_id=tenant_id)
+    return JSONResponse({
+        'tenant_id': data['tenant_id'],
+        'total_r': data['total_r'],
+        'avg_r': data['avg_r'],
+        'max_dd_r': data['max_dd_r'],
+        'realized_trades': data['realized_trades'],
+        'exposure_abs_upnl': data['exposure_abs_upnl'],
+    })
+
+@app.post("/start")
+def start_bot(request: Request):
+    lic_ok, _ = license_ok()
+    if not lic_ok:
+        return RedirectResponse("/?err=license", status_code=303)
+    tenant_id = current_tenant_id(request)
+    engine_manager.start(tenant_id)
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/stop")
+def stop_bot(request: Request):
+    tenant_id = current_tenant_id(request)
+    engine_manager.stop(tenant_id)
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/panic")
+def panic_stop():
+    RUNTIME_CONFIG["PANIC_STOP"] = True
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/unpanic")
+def unpanic_stop():
+    RUNTIME_CONFIG["PANIC_STOP"] = False
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/update")
+def update_config(
+    request: Request,
+    rsi_min: int = Form(...),
+    rsi_max: int = Form(...),
+    gz: float = Form(...),
+    risk: float = Form(...),
+    leverage: int = Form(5),
+    margin_mode: str = Form("cross"),
+    leverage_by_symbol: str = Form(""),
+    mode: str = Form("LIVE"),
+    allow_live: str = Form("true"),
+    max_trades: int = Form(3),
+    cooldown_minutes: int = Form(60),
+    order_size_usdt: float = Form(10.0),
+    daily_loss_cap_pct: float = Form(3.0),
+    entry_score_threshold: int = Form(65),
+    entry_score_soft_gate: str = Form("true"),
+    symbols: str = Form("BTC/USDT,ETH/USDT,SOL/USDT"),
+):
+    tenant_id = current_tenant_id(request)
+    with tenant_scope(tenant_id):
+        load_runtime_config(tenant_id)
+
+        if rsi_min >= rsi_max:
+            return RedirectResponse("/", status_code=303)
+        if risk <= 0 or leverage < 1 or leverage > 125:
+            return RedirectResponse("/", status_code=303)
+        if margin_mode not in {"cross", "isolated"}:
+            return RedirectResponse("/", status_code=303)
+        if max_trades < 1 or cooldown_minutes < 0 or daily_loss_cap_pct <= 0:
+            return RedirectResponse("/", status_code=303)
+        if order_size_usdt < 5 or order_size_usdt > 1000:
+            return RedirectResponse("/", status_code=303)
+        if entry_score_threshold < 0 or entry_score_threshold > 100:
+            return RedirectResponse("/", status_code=303)
+
+        RUNTIME_CONFIG["RSI_MIN"] = rsi_min
+        RUNTIME_CONFIG["RSI_MAX"] = rsi_max
+        RUNTIME_CONFIG["GOLDEN_ZONE_DISTANCE"] = gz
+        RUNTIME_CONFIG["RISK_PER_TRADE"] = risk
+        RUNTIME_CONFIG["LEVERAGE"] = leverage
+        RUNTIME_CONFIG["MARGIN_MODE"] = margin_mode
+        RUNTIME_CONFIG["MODE"] = "LIVE"
+        RUNTIME_CONFIG["ALLOW_LIVE_ORDERS"] = True
+        RUNTIME_CONFIG["MAX_TRADES_PER_DAY"] = max_trades
+        RUNTIME_CONFIG["COOLDOWN_MINUTES"] = cooldown_minutes
+        RUNTIME_CONFIG["ORDER_SIZE_USDT"] = float(order_size_usdt)
+        RUNTIME_CONFIG["DAILY_LOSS_CAP_PCT"] = daily_loss_cap_pct
+        RUNTIME_CONFIG["ENTRY_SCORE_THRESHOLD"] = int(entry_score_threshold)
+        RUNTIME_CONFIG["ENTRY_SCORE_SOFT_GATE"] = str(entry_score_soft_gate).strip().lower() in {"1", "true", "yes", "on"}
+
+        parsed = [x.strip().upper() for x in symbols.split(',') if x.strip()]
+        parsed = [x.replace('-', '/').replace(' ', '') for x in parsed]
+        valid = [x for x in parsed if '/' in x]
+        if valid:
+            RUNTIME_CONFIG["SYMBOLS"] = valid
+
+        lev_map = {}
+        raw_map = leverage_by_symbol.strip()
+        if raw_map:
+            for pair in raw_map.split(','):
+                if ':' not in pair:
+                    continue
+                sym, lv = pair.split(':', 1)
+                sym = sym.strip().upper().replace('-', '/').replace(' ', '')
+                try:
+                    lv_int = int(lv.strip())
+                    if 1 <= lv_int <= 125 and '/' in sym:
+                        lev_map[sym] = lv_int
+                except Exception:
+                    continue
+
+        valid_set = set(RUNTIME_CONFIG.get("SYMBOLS", []))
+        if lev_map:
+            RUNTIME_CONFIG["LEVERAGE_BY_SYMBOL"] = {k: v for k, v in lev_map.items() if k in valid_set}
+        else:
+            RUNTIME_CONFIG["LEVERAGE_BY_SYMBOL"] = {}
+
+        if RUNTIME_CONFIG.get("LEVERAGE_BY_SYMBOL"):
+            RUNTIME_CONFIG["LEVERAGE_BY_SYMBOL"] = {
+                k: v for k, v in RUNTIME_CONFIG["LEVERAGE_BY_SYMBOL"].items() if k in valid_set
+            }
+
+        try:
+            save_runtime_config(tenant_id)
+        except Exception:
+            pass
+
+        try:
+            if tenant_running(tenant_id) and RUNTIME_CONFIG.get("MODE") == "LIVE" and RUNTIME_CONFIG.get("ALLOW_LIVE_ORDERS"):
+                apply_leverage_settings()
+        except Exception:
+            pass
+
+    return RedirectResponse("/", status_code=303)
+
+
+@app.get('/admin/licenses')
+def admin_licenses(request: Request, q: str = ''):
+    rows = find_licenses(q, 500) if q else list_licenses(500)
+    return templates.TemplateResponse('licenses_admin.html', {'request': request, 'licenses': rows, 'q': q})
+
+
+@app.post('/admin/licenses/create')
+def admin_create_license(email: str = Form(...), plan: str = Form('starter'), days: int = Form(30), max_devices: int = Form(1)):
+    issue_license(email=email, plan=plan, days=days, max_devices=max_devices)
+    return RedirectResponse('/admin/licenses', status_code=303)
+
+
+@app.post('/webhook/payment')
+def payment_webhook(payload: dict, x_signature: str | None = Header(default=None)):
+    secret = __import__('os').getenv('PAYMENT_WEBHOOK_SECRET', '').strip()
+    if secret and x_signature != secret:
+        raise HTTPException(status_code=401, detail='invalid_signature')
+
+    event_id = str(payload.get('event_id') or '')
+    if not event_id:
+        raise HTTPException(status_code=400, detail='missing_event_id')
+    if has_payment_event(event_id):
+        return JSONResponse({'ok': True, 'duplicate': True})
+
+    record_payment(payload)
+
+    status = str(payload.get('status', '')).lower()
+    if status in {'paid','success','succeeded'}:
+        email = payload.get('email')
+        plan = payload.get('plan', 'starter')
+        if email:
+            cfg = {'starter': (30,1), 'pro': (30,2), 'pro_trial': (7,2)}.get(plan, (30,1)); rec = issue_license(email=email, plan=plan, days=cfg[0], max_devices=cfg[1])
+            return JSONResponse({'ok': True, 'license_token': rec['license_token'], 'plan': rec['plan']})
+
+    return JSONResponse({'ok': True, 'processed': True})
+
+
+@app.get('/webhook/payment/test')
+def webhook_test():
+    return PlainTextResponse('payment webhook ready')
+
+
+@app.get('/api/connection')
+def api_connection(request: Request):
+    tenant_id = current_tenant_id(request)
+    cfg = tenant_services.get_runtime_config(tenant_id)
+    ok = True
+    err = ''
+    try:
+        handle = tenant_services.exchange_for_tenant(tenant_id)
+        with handle.lock:
+            handle.exchange.fetch_ticker(cfg.get('SYMBOLS', ['BTC/USDT'])[0])
+    except Exception as e:
+        ok = False
+        err = str(e)
+    return JSONResponse({'ok': ok, 'error': err[:180]})
+
+
+@app.get('/api/open-positions')
+def api_open_positions(request: Request):
+    tenant_id = current_tenant_id(request)
+    return JSONResponse({'positions': fetch_open_positions(tenant_id=tenant_id)})
+
+
+@app.get('/api/signals/realtime')
+def api_realtime_signals(request: Request):
+    tenant_id = current_tenant_id(request)
+    cfg = tenant_services.get_runtime_config(tenant_id)
+    st = engine_manager.state_snapshot(tenant_id)
+    rows = list((st.get('realtime_signals') or {}).values())
+    rows.sort(key=lambda x: str(x.get('symbol') or ''))
+    return JSONResponse({
+        'tenant_id': tenant_id,
+        'running': tenant_running(tenant_id),
+        'threshold': int(cfg.get('ENTRY_SCORE_THRESHOLD', 65) or 65),
+        'soft_gate': bool(cfg.get('ENTRY_SCORE_SOFT_GATE', True)),
+        'signals': rows,
+    })
+
+
+@app.get('/api/leverage')
+def api_leverage(request: Request):
+    tenant_id = current_tenant_id(request)
+    cfg = tenant_services.get_runtime_config(tenant_id)
+    symbols = cfg.get('SYMBOLS', [])
+    default_lev = int(cfg.get('LEVERAGE', 5))
+    margin_mode = str(cfg.get('MARGIN_MODE', 'cross'))
+    lev_map = cfg.get('LEVERAGE_BY_SYMBOL', {}) or {}
+
+    rows = []
+    for sym in symbols:
+        rows.append({
+            'symbol': sym,
+            'leverage': int(lev_map.get(sym, default_lev)),
+            'margin_mode': margin_mode,
+        })
+
+    return JSONResponse({'rows': rows, 'default_leverage': default_lev, 'margin_mode': margin_mode})
+
+
+@app.post('/admin/licenses/suspend')
+def admin_suspend_license(token: str = Form(...), next: str = Form('/admin/licenses')):
+    set_license_active(token, False)
+    return RedirectResponse(next or '/admin/licenses', status_code=303)
+
+
+@app.post('/admin/licenses/activate')
+def admin_activate_license(token: str = Form(...), next: str = Form('/admin/licenses')):
+    set_license_active(token, True)
+    return RedirectResponse(next or '/admin/licenses', status_code=303)
+
+
+@app.post('/admin/licenses/delete')
+def admin_delete_license(token: str = Form(...)):
+    delete_license(token)
+    return RedirectResponse('/admin/licenses', status_code=303)
+
+
+@app.post('/admin/licenses/renew')
+def admin_renew_license(token: str = Form(...), days: int = Form(30), next: str = Form('/admin/licenses')):
+    renew_license(token, days)
+    return RedirectResponse(next or '/admin/licenses', status_code=303)
+
+
+@app.post('/admin/licenses/send-token')
+def admin_send_token(token: str = Form(...), target_chat_id: str = Form(...)):
+    import os, urllib.parse, urllib.request
+    from pathlib import Path
+    import json
+
+    # load env quickly
+    env_path = BASE_DIR / '.env'
+    vals = {}
+    if env_path.exists():
+        for line in env_path.read_text().splitlines():
+            if '=' in line and not line.strip().startswith('#'):
+                k,v=line.split('=',1); vals[k]=v
+
+    bot_token = vals.get('TELEGRAM_BOT_TOKEN','').strip()
+    if not bot_token:
+        return RedirectResponse('/admin/licenses?err=no_tg', status_code=303)
+
+    # find license
+    data_path = BASE_DIR / 'licenses' / 'licenses.json'
+    if not data_path.exists():
+        return RedirectResponse('/admin/licenses?err=no_db', status_code=303)
+    db = json.loads(data_path.read_text())
+    rec = next((x for x in db.get('licenses',[]) if x.get('license_token')==token), None)
+    if not rec:
+        return RedirectResponse('/admin/licenses?err=no_license', status_code=303)
+
+    msg = f"MindTrade OS License\nEmail: {rec.get('email')}\nPlan: {rec.get('plan')}\nToken: {rec.get('license_token')}\nExpires: {rec.get('expires_at')}"
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage?" + urllib.parse.urlencode({'chat_id': target_chat_id, 'text': msg})
+    try:
+        urllib.request.urlopen(url, timeout=10).read()
+    except Exception:
+        return RedirectResponse('/admin/licenses?err=send_fail', status_code=303)
+
+    return RedirectResponse('/admin/licenses?ok=sent', status_code=303)
+
+
+@app.get('/profile')
+def profile_page(request: Request, token: str = ''):
+    from pathlib import Path
+    import json
+    from datetime import datetime, timezone
+
+    db_path = BASE_DIR / 'licenses' / 'licenses.json'
+    rec = None
+    days_left = None
+    expiry_state = 'unknown'
+    payments = []
+
+    user_email = (request.session.get('user_email') or '').strip().lower()
+    if db_path.exists():
+        db = json.loads(db_path.read_text())
+        if token:
+            rec = next((x for x in db.get('licenses',[]) if x.get('license_token')==token), None)
+        elif user_email:
+            rec = next((x for x in db.get('licenses',[]) if (x.get('email') or '').strip().lower()==user_email), None)
+
+    if rec:
+        exp_raw = rec.get('expires_at')
+        try:
+            exp = datetime.fromisoformat(str(exp_raw))
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            delta_days = int((exp - now).total_seconds() // 86400)
+            days_left = delta_days
+            if delta_days < 0:
+                expiry_state = 'expired'
+            elif delta_days <= 7:
+                expiry_state = 'warning'
+            else:
+                expiry_state = 'ok'
+        except Exception:
+            expiry_state = 'unknown'
+
+        payments = list_payments_for_license(rec.get('license_token',''), limit=20)
+
+    announcement = "🚀 Welcome to MindTrade OS — New: profile expiry badge + payment history"
+    return templates.TemplateResponse('profile.html', {
+        'request': request,
+        'rec': rec,
+        'token': token,
+        'announcement': announcement,
+        'days_left': days_left,
+        'expiry_state': expiry_state,
+        'payments': payments,
+        'user_email': request.session.get('user_email',''),
+    })
+
+
+@app.post('/profile/renew')
+def profile_renew(token: str = Form(...), days: int = Form(30)):
+    renew_license(token, days)
+    return RedirectResponse(f'/profile?token={token}', status_code=303)
+
+
+@app.get('/landing')
+def landing_page(request: Request):
+    return templates.TemplateResponse('landing.html', {
+        'request': request,
+        'product_name': 'MindTrade OS',
+        'tagline': 'AI Trading Operating System for serious solo traders',
+    })
+
+
+@app.get('/checkout')
+def checkout_page(request: Request, plan: str = 'pro'):
+    email = _current_email(request)
+    if not email:
+        return RedirectResponse('/auth/login?err=login_required', status_code=303)
+    plan_norm = (plan or 'starter').strip().lower()
+    if plan_norm not in PLAN_PRICING:
+        plan_norm = 'starter'
+    pricing = PLAN_PRICING[plan_norm]
+    return templates.TemplateResponse('checkout.html', {
+        'request': request,
+        'email': email,
+        'plan': plan_norm,
+        'pricing': pricing,
+        'channels': ['binance_pay', 'promptpay'],
+    })
+
+
+@app.post('/checkout/create-order')
+def checkout_create_order(request: Request, plan: str = Form('pro'), channel: str = Form('binance_pay')):
+    email = _current_email(request)
+    if not email:
+        return RedirectResponse('/auth/login?err=login_required', status_code=303)
+    plan_norm = (plan or 'starter').strip().lower()
+    if plan_norm not in PLAN_PRICING:
+        plan_norm = 'starter'
+    channel_norm = (channel or 'binance_pay').strip().lower()
+    if channel_norm not in {'binance_pay', 'promptpay'}:
+        channel_norm = 'binance_pay'
+    pricing = PLAN_PRICING[plan_norm]
+    order = create_payment_order(email=email, plan=plan_norm, amount=pricing['amount'], channel=channel_norm, currency=pricing['currency'])
+    return RedirectResponse(f"/checkout/order/{order['order_id']}", status_code=303)
+
+
+@app.get('/checkout/order/{order_id}')
+def checkout_order_page(request: Request, order_id: str):
+    order = get_payment_order(order_id)
+    email = _current_email(request)
+    if not order:
+        raise HTTPException(status_code=404, detail='order_not_found')
+    if email and (order.get('email') or '').strip().lower() != email:
+        raise HTTPException(status_code=403, detail='forbidden')
+
+    channel = (order.get('channel') or '').lower()
+    instruction = 'Scan Binance Pay QR and complete payment.' if channel == 'binance_pay' else 'Transfer via PromptPay and send slip to admin for manual confirmation.'
+    qr_placeholder = f"{channel.upper()} QR PLACEHOLDER"
+    return templates.TemplateResponse('checkout_order.html', {
+        'request': request,
+        'order': order,
+        'instruction': instruction,
+        'qr_placeholder': qr_placeholder,
+    })
+
+
+@app.get('/payments/status/{order_id}')
+def payment_status_page(request: Request, order_id: str):
+    order = get_payment_order(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail='order_not_found')
+    lic = None
+    token = (order.get('activated_license_token') or '').strip()
+    if token:
+        rows = list_licenses(5000)
+        lic = next((x for x in rows if x.get('license_token') == token), None)
+    return templates.TemplateResponse('payment_status.html', {'request': request, 'order': order, 'license': lic})
+
+
+@app.get('/admin/payments')
+def admin_payments_page(request: Request):
+    pending = list_payment_orders(status='pending', limit=500)
+    recent = list_payment_orders(limit=100)
+    return templates.TemplateResponse('payments_admin.html', {'request': request, 'pending': pending, 'recent': recent})
+
+
+@app.post('/admin/payments/approve')
+def admin_payment_approve(order_id: str = Form(...)):
+    order = get_payment_order(order_id)
+    if not order:
+        return RedirectResponse('/admin/payments?err=not_found', status_code=303)
+    result = activate_or_renew_license_by_order(order_id, source='admin', idempotency_key=f'admin_approve:{order_id}')
+    if not result.get('ok'):
+        return RedirectResponse('/admin/payments?err=approve_failed', status_code=303)
+    return RedirectResponse(f"/payments/status/{order_id}", status_code=303)
+
+
+@app.post('/admin/payments/reject')
+def admin_payment_reject(order_id: str = Form(...), reason: str = Form('manual_rejected')):
+    update_payment_order_status(order_id, 'failed', reason=reason)
+    return RedirectResponse('/admin/payments', status_code=303)
+
+
+@app.post('/webhook/binance-pay')
+async def webhook_binance_pay(request: Request, x_signature: str | None = Header(default=None)):
+    payload_bytes = await request.body()
+    secret = __import__('os').getenv('BINANCE_PAY_WEBHOOK_SECRET', '').strip()
+    if not verify_binancepay_signature(payload_bytes, x_signature, secret):
+        raise HTTPException(status_code=401, detail='invalid_signature')
+
+    import json
+    payload = json.loads(payload_bytes.decode() or '{}')
+    event_id = str(payload.get('event_id') or payload.get('bizId') or '')
+    if not event_id:
+        raise HTTPException(status_code=400, detail='missing_event_id')
+
+    if is_processed_event(event_id):
+        return JSONResponse({'ok': True, 'duplicate': True})
+
+    order_id = str(payload.get('order_id') or payload.get('merchantTradeNo') or '')
+    if not order_id:
+        raise HTTPException(status_code=400, detail='missing_order_id')
+
+    status = str(payload.get('status') or payload.get('bizStatus') or '').strip().lower()
+    if status in {'paid', 'success', 'succeeded'}:
+        out = activate_or_renew_license_by_order(order_id, source='binance_webhook', idempotency_key=f'webhook:{event_id}')
+        if not out.get('ok'):
+            raise HTTPException(status_code=404, detail=out.get('error', 'activation_failed'))
+    elif status in {'failed', 'expired', 'closed'}:
+        update_payment_order_status(order_id, 'failed', reason=status, meta={'event_id': event_id})
+    else:
+        update_payment_order_status(order_id, 'pending', meta={'event_id': event_id, 'status': status})
+
+    mark_processed_event(event_id, source='binance_webhook')
+    record_payment({'event_id': event_id, 'order_id': order_id, 'status': status, 'payload': payload, 'source': 'binance_webhook'})
+    return JSONResponse({'ok': True, 'order_id': order_id, 'status': status})
+
+
+@app.get('/webhook/binance-pay/test')
+def webhook_binance_pay_test():
+    return PlainTextResponse('binance pay webhook ready')
+
+
+@app.get('/auth/login')
+def auth_login_page(request: Request, err: str = ''):
+    return templates.TemplateResponse('login.html', {'request': request, 'err': err})
+
+
+@app.post('/auth/login')
+def auth_login(request: Request, email: str = Form(...), password: str = Form(...)):
+    if not verify_user(email, password):
+        return RedirectResponse('/auth/login?err=invalid', status_code=303)
+    email_norm = email.strip().lower()
+    request.session['user_email'] = email_norm
+    request.session['tenant_id'] = resolve_user_tenant(email_norm)
+    return RedirectResponse('/profile', status_code=303)
+
+
+@app.get('/auth/signup')
+def auth_signup_page(request: Request, err: str = ''):
+    return templates.TemplateResponse('signup.html', {'request': request, 'err': err})
+
+
+@app.post('/auth/signup')
+def auth_signup(request: Request, email: str = Form(...), password: str = Form(...)):
+    ok, reason = create_user(email, password)
+    if not ok:
+        return RedirectResponse(f'/auth/signup?err={reason}', status_code=303)
+
+    # Auto-create starter license so admin can see this account immediately
+    email_norm = email.strip().lower()
+    try:
+        exists = any((x.get('email') or '').strip().lower() == email_norm for x in list_licenses(5000))
+        if not exists:
+            issue_license(email=email_norm, plan='pro_trial', days=7, max_devices=2)
+    except Exception:
+        pass
+
+    request.session['user_email'] = email_norm
+    request.session['tenant_id'] = resolve_user_tenant(email_norm)
+    return RedirectResponse('/profile', status_code=303)
+
+
+@app.get('/auth/logout')
+def auth_logout(request: Request):
+    request.session.clear()
+    return RedirectResponse('/auth/login', status_code=303)
+
+
+@app.get('/setup')
+def setup_page(request: Request):
+    return templates.TemplateResponse('setup_wizard.html', {
+        'request': request,
+        'vps_ip': '185.230.138.51',
+    })
+
+
+BOT_ONLY_SCOPE_MSG = "ขออภัยค่ะ ระบบนี้ตอบเฉพาะการใช้งาน MindTrade OS และบอทเทรดเท่านั้นค่ะ"
+
+
+def _run_api_test_for_tenant(email: str, tenant_id: str) -> dict[str, Any]:
+    import ccxt
+
+    k, sec = get_user_api(email, tenant_id=tenant_id)
+    if not k or not sec:
+        return {'ok': False, 'error': 'no_api_saved'}
+    try:
+        ex = ccxt.binance({'apiKey': k, 'secret': sec, 'enableRateLimit': True, 'options': {'defaultType': 'future'}})
+        b = ex.fetch_balance()
+        usdt = float((b.get('USDT') or {}).get('total') or 0)
+        return {'ok': True, 'usdt_total': usdt}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)[:180]}
+
+
+def _diagnose_tenant(tenant_id: str, email: str = '') -> dict[str, Any]:
+    data = tenant_metrics(tenant_id)
+    summary = data.get('summary', {})
+    blocked_reasons = data.get('blocked_reasons', {}) or {}
+    worker = engine_manager.status(tenant_id)
+    issues: list[dict[str, Any]] = []
+
+    if not worker.get('running'):
+        issues.append({
+            'code': 'worker_stopped',
+            'severity': 'high',
+            'title': 'Worker หยุดอยู่',
+            'why': 'ไม่สามารถเข้าออเดอร์ใหม่ได้เมื่อ worker ไม่ทำงาน',
+            'playbook': [
+                'กดปุ่ม Check Worker เพื่อเช็กสถานะล่าสุด',
+                'ถ้ายังหยุดอยู่ ให้กด Start Worker',
+                'ถ้า start ไม่ได้ ให้ตรวจสอบ license และ API key ในหน้า Profile',
+            ],
+        })
+
+    if not worker.get('license_ok', True):
+        reason = worker.get('license_reason') or 'unknown'
+        issues.append({
+            'code': 'license_blocked',
+            'severity': 'high',
+            'title': 'License ถูกบล็อก',
+            'why': f"license gate ปฏิเสธการรัน ({_license_reason_message(reason)})",
+            'playbook': [
+                'ไปที่หน้า Profile เพื่อตรวจวันหมดอายุ/สถานะแพ็กเกจ',
+                'ถ้าหมดอายุ ให้ต่ออายุหรือแจ้งแอดมินอนุมัติ',
+                'หลังแก้ไขแล้ว ให้กลับมากด Diagnose อีกครั้ง',
+            ],
+        })
+
+    entries = int(summary.get('entries') or 0)
+    blocked = int(summary.get('blocked') or 0)
+    skips = int(summary.get('skips') or 0)
+
+    if entries == 0 and (blocked > 0 or skips > 10):
+        top_reason = '-'
+        if blocked_reasons:
+            top_reason = max(blocked_reasons, key=lambda k: blocked_reasons[k])
+        issues.append({
+            'code': 'no_entries_filters',
+            'severity': 'medium',
+            'title': 'ยังไม่มีจังหวะเข้าไม้',
+            'why': f'ระบบถูกกรองสัญญาณหรือถูกบล็อกบ่อย (เหตุผลหลัก: {top_reason})',
+            'playbook': [
+                'ตรวจค่า cooldown และเงื่อนไข entry filter ว่าเข้มเกินไปไหม',
+                'ลดจำนวน symbol ชั่วคราวเพื่อโฟกัสเหรียญหลักก่อน',
+                'ติดตามผล 30-60 นาทีแล้วกด Diagnose ซ้ำ',
+            ],
+        })
+
+    margin_blocked = sum(v for k, v in blocked_reasons.items() if 'margin' in str(k).lower() or 'insufficient' in str(k).lower())
+    if margin_blocked > 0:
+        issues.append({
+            'code': 'margin_insufficient',
+            'severity': 'high',
+            'title': 'Margin ไม่พอ',
+            'why': f'พบสัญญาณ blocked เพราะ margin ไม่พอ {margin_blocked} ครั้ง',
+            'playbook': [
+                'ลด risk per trade หรือ leverage ให้ต่ำลงก่อน',
+                'เพิ่มเงิน USDT ใน Futures wallet',
+                'ลดจำนวน position พร้อมกัน แล้วทดสอบใหม่',
+            ],
+        })
+
+    if email:
+        api_test = _run_api_test_for_tenant(email, tenant_id)
+        if not api_test.get('ok'):
+            issues.append({
+                'code': 'api_failure',
+                'severity': 'high',
+                'title': 'API เชื่อมต่อไม่ผ่าน',
+                'why': f"ทดสอบ API ไม่สำเร็จ: {api_test.get('error', 'unknown')}",
+                'playbook': [
+                    'เช็ก API key/secret ว่ากรอกครบและถูกต้อง',
+                    'เปิดสิทธิ์ Reading + Futures และปิด Withdraw',
+                    'ถ้าใช้ IP whitelist ให้เพิ่ม IP เซิร์ฟเวอร์ 185.230.138.51',
+                ],
+            })
+    else:
+        api_test = {'ok': False, 'error': 'login_required'}
+
+    ok = len(issues) == 0
+    if ok:
+        issues.append({
+            'code': 'healthy',
+            'severity': 'info',
+            'title': 'ระบบโดยรวมปกติ',
+            'why': 'Worker ทำงานและไม่พบสัญญาณผิดปกติหลัก',
+            'playbook': [
+                'เฝ้าดู blocked reasons เป็นระยะ',
+                'ทดสอบ API ก่อนเริ่มรอบเทรดสำคัญ',
+            ],
+        })
+
+    return {
+        'ok': ok,
+        'tenant_id': tenant_id,
+        'worker': worker,
+        'summary': summary,
+        'blocked_reasons': blocked_reasons,
+        'api_test': api_test,
+        'issues': issues,
+    }
+
+
+def _format_diagnosis_answer(diag: dict[str, Any]) -> str:
+    issues = diag.get('issues', []) or []
+    lines = [f"ผลวิเคราะห์ Tenant: {diag.get('tenant_id')}"]
+    for idx, issue in enumerate(issues, start=1):
+        lines.append(f"\n{idx}) {issue.get('title')} [{issue.get('severity')}]")
+        lines.append(f"- สาเหตุ: {issue.get('why')}")
+        for step in issue.get('playbook', []):
+            lines.append(f"- แนะนำ: {step}")
+    return '\n'.join(lines)
+
+
+def _help_answer(q: str) -> str:
+    text = (q or '').strip().lower()
+    if not text:
+        return "พิมพ์คำถามเกี่ยวกับการใช้งานบอทได้เลยค่ะ เช่น leverage, cooldown, api key, start/stop"
+
+    out_of_scope = ['หวย', 'ฟุตบอล', 'หนัง', 'เพลง', 'การเมือง', 'สุขภาพ', 'อาหาร', 'ท่องเที่ยว']
+    if any(k in text for k in out_of_scope):
+        return BOT_ONLY_SCOPE_MSG
+
+    rules = [
+        (['leverage by symbol', 'เลเวอเรจแยก', 'leverage'], "Leverage (x) คือค่าเริ่มต้นทุกเหรียญ ส่วน Leverage by symbol คือค่าแยกรายเหรียญที่มีลำดับความสำคัญสูงกว่า\nตัวอย่าง: BTC/USDT:5,ETH/USDT:3"),
+        (['cooldown', 'พักไม้', 'cooldown minutes'], "Cooldown minutes คือเวลาพักหลังเข้าไม้ก่อนเข้าไม้ใหม่ (นาที)\nเช่น 120 = เข้าไม้แล้วพัก 2 ชั่วโมงก่อนสัญญาณใหม่"),
+        (['api', 'binance', '-2015', 'permission', 'whitelist'], "การตั้ง Binance API ที่ถูกต้อง:\n1) Enable Reading ON\n2) Enable Futures ON\n3) Withdraw OFF\n4) ถ้าเปิด IP restriction ให้ whitelist IP VPS: 185.230.138.51\n5) ถ้าเจอ -2015 ให้เช็ก key/ip/permission อีกครั้ง"),
+        (['start', 'เริ่มบอท', 'รันบอท'], "เริ่มบอทจาก Dashboard ด้วยปุ่ม START ได้เลยค่ะ และเช็กที่ /health ว่า running=true"),
+        (['stop', 'หยุดบอท', 'panic'], "หยุดบอทปกติใช้ STOP\nถ้าต้องหยุดฉุกเฉินให้ใช้ PANIC"),
+        (['risk', 'risk per trade', 'ความเสี่ยง'], "Risk / Trade คือความเสี่ยงต่อไม้\nตัวอย่าง 0.005 = 0.5% ต่อไม้ แนะนำเริ่มที่ 0.005-0.01"),
+        (['หมดอายุ', 'expire', 'license', 'สมาชิก'], "ตรวจสอบสิทธิ์สมาชิกได้ที่หน้า Profile\nระบบจะแสดง plan, วันหมดอายุ และ days left พร้อมปุ่มต่ออายุ"),
+    ]
+    for keys, ans in rules:
+        if any(k in text for k in keys):
+            return ans
+
+    return "น้องมายด์ตอบได้เฉพาะคู่มือใช้งาน MindTrade OS ค่ะ\nลองถามแบบนี้ได้: leverage ต่างกันยังไง, cooldown คืออะไร, ตั้งค่า API Binance ยังไง, วิธี start/stop บอท"
+
+
+@app.get('/help-chat')
+def help_chat_page(request: Request):
+    return templates.TemplateResponse('help_chat.html', {'request': request})
+
+
+@app.post('/api/help-chat')
+def api_help_chat(request: Request, payload: dict):
+    q = str(payload.get('question') or '')
+    action = str(payload.get('action') or '').strip().lower()
+
+    if action in {'diagnose', 'diagnose_now'}:
+        email = _current_email(request)
+        tenant_id = current_tenant_id(request)
+        diag = _diagnose_tenant(tenant_id, email)
+        return JSONResponse({'ok': True, 'mode': 'diagnosis', 'answer': _format_diagnosis_answer(diag), 'diagnosis': diag})
+
+    ans = _help_answer(q)
+    return JSONResponse({'ok': True, 'mode': 'rule', 'answer': ans})
+
+
+@app.post('/api/help-chat/actions/test-api')
+def help_action_test_api(request: Request):
+    email = _current_email(request)
+    if not email:
+        return JSONResponse({'ok': False, 'error': 'login_required'})
+    tenant_id = current_tenant_id(request)
+    out = _run_api_test_for_tenant(email, tenant_id)
+    return JSONResponse({'ok': bool(out.get('ok')), 'tenant_id': tenant_id, **out})
+
+
+@app.post('/api/help-chat/actions/check-worker')
+def help_action_check_worker(request: Request, payload: dict | None = None):
+    email = _current_email(request)
+    if not email:
+        return JSONResponse({'ok': False, 'error': 'login_required'})
+    payload = payload or {}
+    tenant_id = current_tenant_id(request)
+    status = engine_manager.status(tenant_id)
+    requested = bool(payload.get('restart_if_stopped'))
+    restarted = False
+
+    if requested and not status.get('running') and status.get('license_ok', True):
+        restarted = bool(engine_manager.start(tenant_id))
+        status = engine_manager.status(tenant_id)
+
+    message = 'worker running' if status.get('running') else 'worker stopped'
+    if not status.get('license_ok', True):
+        message = f"worker blocked by license: {_license_reason_message(status.get('license_reason', ''))}"
+
+    return JSONResponse({
+        'ok': True,
+        'tenant_id': tenant_id,
+        'status': status,
+        'requested_restart': requested,
+        'restarted': restarted,
+        'message': message,
+    })
+
+
+@app.post('/api/help-chat/actions/risk-suggestions')
+def help_action_risk_suggestions(request: Request, payload: dict | None = None):
+    email = _current_email(request)
+    if not email:
+        return JSONResponse({'ok': False, 'error': 'login_required'})
+
+    tenant_id = current_tenant_id(request)
+    payload = payload or {}
+    profile = str(payload.get('profile') or 'balanced').strip().lower()
+    profile = profile if profile in {'conservative', 'balanced', 'aggressive'} else 'balanced'
+
+    presets = {
+        'conservative': {'risk_per_trade': 0.003, 'max_positions': 2, 'leverage_hint': '2-3x'},
+        'balanced': {'risk_per_trade': 0.005, 'max_positions': 3, 'leverage_hint': '3-5x'},
+        'aggressive': {'risk_per_trade': 0.01, 'max_positions': 5, 'leverage_hint': '5-8x'},
+    }
+
+    return JSONResponse({
+        'ok': True,
+        'tenant_id': tenant_id,
+        'profile': profile,
+        'suggestion': presets[profile],
+        'apply_mode': 'manual_only',
+        'warning': 'ระบบให้คำแนะนำเท่านั้น ยังไม่เปลี่ยนค่าจริงจนกว่าจะมีการยืนยันแบบ explicit confirmation',
+    })
+
+
+@app.get('/api/futures-balance')
+def api_futures_balance(request: Request):
+    try:
+        tenant_id = current_tenant_id(request)
+        handle = tenant_services.exchange_for_tenant(tenant_id)
+        with handle.lock:
+            bal = handle.exchange.fetch_balance()
+        usdt = bal.get('USDT', {}) if isinstance(bal, dict) else {}
+        total = float(usdt.get('total') or 0)
+        free = float(usdt.get('free') or 0)
+        used = float(usdt.get('used') or 0)
+        return JSONResponse({'ok': True, 'asset': 'USDT', 'total': round(total, 6), 'free': round(free, 6), 'used': round(used, 6)})
+    except Exception as e:
+        return JSONResponse({'ok': False, 'error': str(e)[:180], 'asset': 'USDT', 'total': 0, 'free': 0, 'used': 0})
+
+
+@app.post('/settings/api/save')
+def settings_api_save(request: Request, api_key: str = Form(...), api_secret: str = Form(...)):
+    email = (request.session.get('user_email') or '').strip().lower()
+    if not email:
+        return RedirectResponse('/auth/login?err=login_required', status_code=303)
+    if not api_key.strip() or not api_secret.strip():
+        return RedirectResponse('/?api_err=missing', status_code=303)
+    tenant_id = current_tenant_id(request)
+    set_user_api(email, api_key.strip(), api_secret.strip(), tenant_id=tenant_id)
+
+    # Apply immediately: refresh exchange handle + restart running worker to pick new credentials
+    try:
+        tenant_services.refresh_tenant_exchange(tenant_id)
+    except Exception:
+        pass
+
+    try:
+        if tenant_running(tenant_id):
+            engine_manager.stop(tenant_id, timeout_sec=8.0)
+            engine_manager.start(tenant_id)
+    except Exception:
+        pass
+
+    return RedirectResponse('/?api_ok=saved', status_code=303)
+
+
+@app.post('/settings/api/test')
+def settings_api_test(request: Request):
+    email = (request.session.get('user_email') or '').strip().lower()
+    if not email:
+        return JSONResponse({'ok': False, 'error': 'login_required'})
+    tenant_id = current_tenant_id(request)
+    out = _run_api_test_for_tenant(email, tenant_id)
+    return JSONResponse(out)
+
+
+@app.get('/proof')
+def performance_proof(request: Request):
+    tenant_id = current_tenant_id(request)
+    m = tenant_metrics(tenant_id)
+    perf = api_performance(request)
+    perf_json = perf.body.decode() if hasattr(perf, 'body') else '{}'
+    import json
+    p = json.loads(perf_json)
+    return templates.TemplateResponse('performance_proof.html', {
+        'request': request,
+        'tenant_id': tenant_id,
+        'summary': m.get('summary', {}),
+        'perf': p,
+        'open_positions': m.get('open_positions_count', 0),
+        'exposure': m.get('exposure_abs_upnl', 0),
+    })

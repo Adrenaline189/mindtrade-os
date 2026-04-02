@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+jinja2
+python-multipart
+python-dotenv
+httpx
+ccxt
+pandas
+numpy
+itsdangerous==2.2.0

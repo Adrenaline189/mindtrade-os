@@ -1,0 +1,14 @@
+<!doctype html>
+<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Payment Order</title><link rel="stylesheet" href="/static/style.css"></head><body>
+<div class="app-shell wrap-medium">
+  <header class="topnav"><div class="brand">🧾 Order {{ order.order_id }}</div><div class="topnav-links"><a class="pill" href="/profile">Profile</a></div></header>
+  <div class='card'>
+    <p>Status: <b>{{ order.status }}</b></p>
+    <p>Channel: <b>{{ order.channel }}</b> | Amount: <b>{{ order.amount }} {{ order.currency }}</b></p>
+    <p>{{ instruction }}</p>
+    <div class="card" style="text-align:center; border-style:dashed">{{ qr_placeholder }}</div>
+    <p>Reference: <code>{{ order.order_id }}</code></p>
+    <a class="btn" href='/payments/status/{{ order.order_id }}'>Refresh payment status</a>
+  </div>
+</div>
+</body></html>

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b1222" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <link rel="stylesheet" href="/static/style.css" />
+  <title>Signup · MindTrade OS</title>
+</head>
+<body>
+  <div class="app-shell">
+    <div class="auth-card card">
+      <div class="kicker">Create account</div>
+      <h2 class="page-title">เริ่มต้นใช้งาน MindTrade OS</h2>
+      {% if err %}<div class="bad error-note">{{ err }}</div>{% endif %}
+      <form method="post" action="/auth/signup" class="stack">
+        <input name="email" placeholder="Email" required>
+        <input name="password" type="password" placeholder="Password (min 6)" required>
+        <button type="submit">Sign up</button>
+      </form>
+      <p class="small mt-sm">มีบัญชีแล้ว? <a href="/auth/login">เข้าสู่ระบบ</a></p>
+      <p class="small">สมัครแล้วจะได้รับสิทธิ์ทดลองใช้งานอัตโนมัติ</p>
+    </div>
+  </div>
+  {% include '_pwa.html' %}
+</body>
+</html>

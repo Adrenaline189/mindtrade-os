@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#0b1222" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <link rel="stylesheet" href="/static/style.css" />
+  <title>MindTrade OS · Performance Proof</title>
+</head>
+<body>
+<div class="app-shell">
+  <header class="topnav">
+    <div class="brand">🏆 Performance Proof</div>
+    <div class="topnav-links"><a class="pill" href="/">Dashboard</a><a class="pill" href="/profile">Profile</a><a class="pill" href="/admin/control">Control</a></div>
+  </header>
+
+  <div class="grid grid-sm-4">
+    <div class="card"><div class="kpi-label">Entries</div><div class="kpi-value">{{ summary.entries or 0 }}</div></div>
+    <div class="card"><div class="kpi-label">Win Rate</div><div class="kpi-value">{{ summary.win_rate or 0 }}%</div></div>
+    <div class="card"><div class="kpi-label">Total R</div><div class="kpi-value {% if (summary.total_r or 0) >= 0 %}ok{% else %}bad{% endif %}">{{ summary.total_r or 0 }}</div></div>
+    <div class="card"><div class="kpi-label">Max DD (R)</div><div class="kpi-value bad">{{ perf.max_dd_r or 0 }}</div></div>
+    <div class="card"><div class="kpi-label">Avg R</div><div class="kpi-value">{{ perf.avg_r or 0 }}</div></div>
+    <div class="card"><div class="kpi-label">Realized Trades</div><div class="kpi-value">{{ perf.realized_trades or 0 }}</div></div>
+    <div class="card"><div class="kpi-label">Open Positions</div><div class="kpi-value">{{ open_positions or 0 }}</div></div>
+    <div class="card"><div class="kpi-label">|uPnL| Exposure</div><div class="kpi-value">{{ exposure or 0 }}</div></div>
+  </div>
+
+  <div class="card mt-md"><div class="kpi-label section-gap-xs">Equity Curve (R)</div><canvas id="eq" class="proof-canvas"></canvas></div>
+</div>
+{% set active='proof' %}{% include '_mobile_nav.html' %}
+{% include '_pwa.html' %}
+<script>
+async function drawEquity(){
+  const c=document.getElementById('eq'); if(!c) return;
+  const ctx=c.getContext('2d'); let data=[];
+  try{ const r=await fetch('/api/pnl'); const j=await r.json(); data=(j.equity||[]).map(Number).filter(x=>!isNaN(x)); }catch(e){}
+  if(!data.length){ data=[0,0,0]; }
+  const W=c.width=c.clientWidth*devicePixelRatio, H=c.height=c.clientHeight*devicePixelRatio;
+  ctx.scale(devicePixelRatio,devicePixelRatio); const w=c.clientWidth,h=c.clientHeight;
+  ctx.clearRect(0,0,w,h); ctx.strokeStyle='#58e4a0'; ctx.lineWidth=2;
+  const min=Math.min(...data), max=Math.max(...data), span=(max-min)||1;
+  data.forEach((v,i)=>{ const x=(i/(data.length-1||1))*w; const y=h-((v-min)/span)*h; if(i===0)ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+  ctx.stroke();
+}
+window.addEventListener('resize', drawEquity); drawEquity();
+</script>
+</body>
+</html>

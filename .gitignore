@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.venv/
+venv/
+
+# Env/secrets
+.env
+.env.*
+
+# Runtime data
+logs/
+data/
+licenses/
+backups/
+*.db
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+
+# Build artifacts
+dist/
+build/
+.bot.pid

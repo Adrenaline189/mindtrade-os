@@ -1,0 +1,25 @@
+<!doctype html>
+<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Payments Admin</title><link rel="stylesheet" href="/static/style.css"></head><body>
+<div class="app-shell">
+<header class="topnav"><div class="brand">💼 Payment Queue</div><div class="topnav-links"><a class="pill" href='/admin/licenses'>License Admin</a><a class="pill" href='/admin/control'>Control</a></div></header>
+<div class='card table-scroll'>
+<h3>Pending / Manual Queue</h3>
+<table><thead><tr><th>Order</th><th>Email</th><th>Plan</th><th>Channel</th><th>Amount</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+{% for x in pending %}
+<tr><td><code>{{x.order_id}}</code></td><td>{{x.email}}</td><td>{{x.plan}}</td><td>{{x.channel}}</td><td>{{x.amount}} {{x.currency}}</td><td>{{x.status}}</td><td>
+<form method='post' action='/admin/payments/approve' class="inline"><input type='hidden' name='order_id' value='{{x.order_id}}'><button type='submit'>Approve</button></form>
+<form method='post' action='/admin/payments/reject' class="inline"><input type='hidden' name='order_id' value='{{x.order_id}}'><input name='reason' value='manual_rejected' style='width:120px'><button type='submit' class="danger">Reject</button></form>
+</td></tr>
+{% endfor %}
+</tbody></table>
+</div>
+<div class='card table-scroll'>
+<h3>Recent Orders</h3>
+<table><thead><tr><th>Order</th><th>Email</th><th>Status</th><th>Channel</th><th>Updated</th></tr></thead><tbody>
+{% for x in recent %}
+<tr><td><a href='/payments/status/{{x.order_id}}'><code>{{x.order_id}}</code></a></td><td>{{x.email}}</td><td>{{x.status}}</td><td>{{x.channel}}</td><td>{{x.updated_at}}</td></tr>
+{% endfor %}
+</tbody></table>
+</div>
+</div>
+</body></html>

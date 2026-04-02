@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#0b1222" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <link rel="stylesheet" href="/static/style.css" />
+  <title>{{ product_name }} | AI Trading OS</title>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topnav">
+      <div class="brand">MindTrade OS <small>Premium Trading Workspace</small></div>
+      <div class="topnav-links">
+        <a class="pill" href="/auth/login">เข้าสู่ระบบ</a>
+        <a class="pill" href="/setup">Setup</a>
+        <a class="btn" href="/auth/signup">เริ่มใช้งาน</a>
+      </div>
+    </header>
+
+    <section class="hero-premium card">
+      <div class="kicker">MindTrade Platform</div>
+      <h1>เทรดอย่างเป็นระบบ ด้วย AI + Risk Guard ในหน้าจอเดียว</h1>
+      <p>{{ tagline }} พร้อม Dashboard แบบมืออาชีพ, ระบบสมาชิก, และเครื่องมือควบคุมพอร์ตที่ชัดเจนทั้งบนมือถือและเดสก์ท็อป</p>
+      <div class="cta">
+        <a class="btn" href="/auth/signup">ทดลองใช้ฟรี 7 วัน</a>
+        <a class="btn btn-ghost" href="/auth/login">มีบัญชีอยู่แล้ว</a>
+        <a class="btn btn-ghost" href="/proof">ดู Performance Proof</a>
+      </div>
+      <div class="cta-note">เริ่มต้นได้ทันที ไม่ต้องใส่บัตรเครดิต • ยกเลิกได้ตลอด</div>
+      <div class="badge-row">
+        <span class="badge">Multi-Tenant Ready</span>
+        <span class="badge">Worker + License Control</span>
+        <span class="badge">PWA Mobile-first</span>
+      </div>
+    </section>
+
+    <section class="feature-grid">
+      <article class="card"><h3 class="m-top-0">📊 Value Proposition</h3><p>ช่วยลดการเทรดตามอารมณ์ด้วยระบบสัญญาณ, กฎความเสี่ยง, และบันทึกเหตุการณ์ที่ตรวจสอบย้อนหลังได้</p></article>
+      <article class="card"><h3 class="m-top-0">⚙️ Feature Highlights</h3><p>Realtime KPI, Open Position Monitor, Help Chat, Diagnose, API Test, และ Control Panel สำหรับแอดมินในระบบเดียว</p></article>
+      <article class="card"><h3 class="m-top-0">🔐 Trust & Ops</h3><p>มีระบบสิทธิ์สมาชิก, payment workflow, และ license gate ลดความเสี่ยงการใช้งานผิดเงื่อนไข พร้อม webhook flow สำหรับ production</p></article>
+    </section>
+
+    <section class="card section-gap-md">
+      <h2 class="section-title">แพ็กเกจที่เหมาะกับสไตล์เทรดของคุณ</h2>
+      <div class="grid grid-sm-2 pricing-grid">
+        <div class="card plan-card">
+          <div class="kicker">Starter</div>
+          <div class="plan-price">29 USDT / เดือน</div>
+          <p>เหมาะกับผู้เริ่มต้นที่ต้องการวัดผลอย่างมีวินัย</p>
+          <ul class="small"><li>Dashboard + KPI พื้นฐาน</li><li>Risk guard มาตรฐาน</li><li>ใช้งานได้ 1 อุปกรณ์</li></ul>
+          <a class="btn btn-ghost" href="/checkout?plan=starter">เลือก Starter</a>
+        </div>
+        <div class="card plan-card highlight">
+          <span class="plan-badge">Best Value</span>
+          <div class="kicker">Pro</div>
+          <div class="plan-price">79 USDT / เดือน</div>
+          <p>สำหรับสายใช้งานจริง เน้นความชัดเจนและการขยายระบบ</p>
+          <ul class="small"><li>Advanced controls + admin tools</li><li>รองรับ multi-symbol flow</li><li>ใช้งานได้ 2 อุปกรณ์</li></ul>
+          <a class="btn" href="/checkout?plan=pro">เลือก Pro</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="card section-gap-md">
+      <h2 class="section-title">เปรียบเทียบแพ็กเกจ</h2>
+      <div class="table-scroll">
+        <table class="table-tight">
+          <thead><tr><th>ฟีเจอร์</th><th>Starter</th><th>Pro</th></tr></thead>
+          <tbody>
+            <tr><td>Risk Guard (loss cap / cooldown)</td><td>✅</td><td>✅</td></tr>
+            <tr><td>Realtime Dashboard + Events</td><td>✅</td><td>✅</td></tr>
+            <tr><td>Advanced Admin Control</td><td>—</td><td>✅</td></tr>
+            <tr><td>รองรับหลายอุปกรณ์</td><td>1</td><td>2</td></tr>
+            <tr><td>Priority Support</td><td>—</td><td>✅</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="trust-grid section-gap-md">
+      <div class="card"><h3 class="m-top-0">🧾 Operational Transparency</h3><p>ทุกอีเวนต์, KPI และสถานะการทำงานดูย้อนหลังได้ ช่วยให้ตรวจสอบการตัดสินใจง่ายขึ้น</p></div>
+      <div class="card"><h3 class="m-top-0">🛡️ Security Mindset</h3><p>แนะนำตั้งค่า API แบบปลอดภัย (อ่าน/ฟิวเจอร์สเท่านั้น, ปิดถอน) พร้อมแนวทาง whitelist IP</p></div>
+      <div class="card"><h3 class="m-top-0">🤝 Support Workflow</h3><p>หน้า Help + Diagnose และ Admin queue ทำให้ซัพพอร์ตลูกค้าได้เร็วและมีขั้นตอนที่ชัดเจน</p></div>
+    </section>
+
+    <section class="card section-gap-md">
+      <h2 class="section-title">FAQ</h2>
+      <div class="faq-item"><b>เริ่มใช้งานยากไหม?</b><div class="muted">ไม่ยาก มีหน้า Setup Wizard และ Help Chat ให้ใช้งานทันที</div></div>
+      <div class="faq-item"><b>ต้องมีประสบการณ์เทรดไหม?</b><div class="muted">สามารถเริ่มจากค่าความเสี่ยงต่ำ และค่อยปรับตามผลลัพธ์ได้</div></div>
+      <div class="faq-item"><b>รองรับมือถือไหม?</b><div class="muted">รองรับแบบ mobile-first พร้อมเมนูแตะง่ายและ PWA</div></div>
+      <div class="faq-item"><b>มีความเสี่ยงไหม?</b><div class="muted">มีความเสี่ยงตามธรรมชาติของตลาด ควรตั้ง risk guard และบริหารเงินอย่างเคร่งครัด</div></div>
+    </section>
+  </div>
+  {% include '_pwa.html' %}
+</body>
+</html>

@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MindTrade OS</title>
+  <meta name="theme-color" content="#0b1222" />
+  <link rel="manifest" href="/static/manifest.json" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body class="dashboard-page">
+<div class="wrap wrap-wide">
+  <div class="top dashboard-top">
+    <div>
+      <h2 class="m-0"><span id="txt_title">📈 MindTrade OS · Pro Theme</span></h2>
+      <div class="small"><span id="txt_symbols">Symbols</span>: {{ cfg.SYMBOLS|join(', ') }} • <span id="txt_mode">Mode</span>: {{ cfg.MODE }}</div>
+    </div>
+    <div class="top-controls">
+      <select id="langSwitch" class="lang-switch"><option value="th">ไทย</option><option value="en">EN</option></select>
+      <div class="status {% if running %}running{% else %}stopped{% endif %}">{% if running %}● RUNNING{% else %}● STOPPED{% endif %}</div>
+    </div>
+  </div>
+
+  <div class="toolbar symbol-tabs" id="symbolTabs"></div>
+  <div class="navx">
+    <a class="pill" href="/">📊 Dashboard</a>
+    <a class="pill" href="/admin/control">🛠 Workers/Admin</a>
+    <a class="pill" href="/profile">👤 Profile</a>
+    <a class="pill" href="/proof">🏆 Proof</a>
+    <a class="pill" href="/help-chat">💬 Help</a>
+  </div>
+
+  <div class="grid dashboard-kpis">
+    <div class="card"><div class="kpi-label"><span id="txt_maxdd">Max DD (R)</span></div><div class="kpi-value" id="k_maxdd">0</div></div>
+    <div class="card"><div class="kpi-label"><span id="txt_entries">Entries</span> (<span id="k_symbol">ALL</span>)</div><div class="kpi-value" id="k_entries">{{ summary.entries }}</div></div>
+    <div class="card"><div class="kpi-label"><span id="txt_win">Win Rate</span></div><div class="kpi-value" id="k_win">{{ summary.win_rate }}%</div></div>
+    <div class="card"><div class="kpi-label"><span id="txt_totalr">Total R</span></div><div class="kpi-value" id="k_totalr">{{ summary.total_r }}</div></div>
+    <div class="card"><div class="kpi-label"><span id="txt_tp">TP Hits</span></div><div class="kpi-value" id="k_tp">{{ summary.tp_hits }}</div></div>
+    <div class="card"><div class="kpi-label"><span id="txt_sl">SL Hits</span></div><div class="kpi-value" id="k_sl">{{ summary.sl_hits }}</div></div>
+    <div class="card"><div class="kpi-label"><span id="txt_conn">Connection</span></div><div class="kpi-value" id="k_conn">-</div></div>
+    <div class="card"><div class="kpi-label"><span id="txt_exposure">Exposure |uPnL|</span></div><div class="kpi-value" id="k_exposure">0</div></div>
+    <div class="card"><div class="kpi-label"><span id="txt_openpos">Open Positions</span></div><div class="kpi-value" id="k_positions">0</div></div>
+    <div class="card"><div class="kpi-label"><span id="txt_futbal">Futures Balance (USDT)</span></div><div class="kpi-value" id="k_futbal">0</div></div>
+  </div>
+
+  <div class="inspo dashboard-overview">
+    <div class="card">
+      <h3 class="m-top-0">Overview (Live)</h3>
+      <div class="mini-list">
+        <div><span>Entries</span><strong id="ov_entries">0</strong></div>
+        <div><span>Win Rate</span><strong id="ov_win">0%</strong></div>
+        <div><span>Total R</span><strong id="ov_total_r">0</strong></div>
+        <div><span>Max DD (R)</span><strong id="ov_maxdd">0</strong></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3 class="m-top-0">Exposure</h3>
+      <div class="mini-list">
+        <div><span>Open Positions</span><strong id="ov_openpos">0</strong></div>
+        <div><span>|uPnL| Exposure</span><strong id="ov_exposure">0</strong></div>
+        <div><span>Connection</span><strong id="ov_conn">-</strong></div>
+        <div><span>System Mode</span><strong id="ov_mode">LIVE</strong></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3 class="m-top-0">Symbols (Active)</h3>
+      <div class="mini-list" id="ov_symbols_box">
+        {% for sym in cfg.SYMBOLS %}
+          <div><span>{{ sym }}</span><strong>active</strong></div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="card section-gap-sm">
+    <h3 class="m-top-0">🎯 Real-time Entry Scores</h3>
+    <div id="scoreCards" class="score-cards small">Loading...</div>
+  </div>
+
+  <div class="card section-gap-sm">
+    <h3 class="m-top-0">📘 คู่มือการกรอกค่า (Dashboard Guide)</h3>
+    <details open>
+      <summary><b>วิธีใช้งานแบบเร็ว</b></summary>
+      <ul class="small">
+        <li>1) ตั้ง Leverage และ Leverage by symbol ให้ตรงตามต้องการ</li>
+        <li>2) ตั้ง Risk / Trade ต่ำ ๆ ก่อนเริ่ม (เช่น 0.005 = 0.5%)</li>
+        <li>3) กด Save ก่อน แล้วค่อยกด START</li>
+        <li>4) ถ้าต้องการหยุดทันที ใช้ปุ่ม PANIC</li>
+      </ul>
+    </details>
+    <details>
+      <summary><b>ความหมายแต่ละช่อง</b></summary>
+      <ul class="small">
+        <li><b>RSI MIN / RSI MAX</b>: ช่วง RSI ที่ระบบยอมรับสำหรับเข้าเทรด</li>
+        <li><b>Golden Zone %</b>: ระยะย่อที่ยอมรับจากจุดอ้างอิง (ยิ่งน้อยยิ่งเข้ม)</li>
+        <li><b>Risk / Trade</b>: ความเสี่ยงต่อไม้ (0.01 = 1% ต่อไม้)</li>
+        <li><b>Leverage (x)</b>: เลเวอเรจเริ่มต้นสำหรับทุกเหรียญ</li>
+        <li><b>Margin Mode</b>: cross = แชร์มาร์จิ้นทั้งพอร์ต, isolated = แยกต่อเหรียญ</li>
+        <li><b>Leverage by symbol</b>: ตั้งแยกรายเหรียญ เช่น BTC/USDT:5,ETH/USDT:3 (ถ้ามี จะทับค่า Leverage ด้านบน)</li>
+        <li><b>Max trades/day</b>: จำกัดจำนวนไม้ต่อวัน</li>
+        <li><b>Cooldown minutes</b>: เวลาพักก่อนเข้าไม้ใหม่</li>
+        <li><b>Order Size (USDT)</b>: ขนาดไม้ต่อออเดอร์ (หน่วย USDT) ระบบจะบังคับขั้นต่ำรายเหรียญอัตโนมัติ</li>
+        <li><b>Daily loss cap %</b>: ขาดทุนรวมต่อวันสูงสุดก่อนระบบกันเทรด</li>
+        <li><b>Symbols</b>: รายชื่อเหรียญที่ให้ระบบวิ่ง คั่นด้วยคอมม่า</li>
+      </ul>
+    </details>
+    <details>
+      <summary><b>ค่าแนะนำเริ่มต้น (Safe)</b></summary>
+      <ul class="small">
+        <li>Risk / Trade: <code>0.005</code></li>
+        <li>Leverage: <code>3-5x</code></li>
+        <li>Max trades/day: <code>2-3</code></li>
+        <li>Cooldown: <code>90-180</code> นาที</li>
+        <li>Daily loss cap: <code>1.5-2.5%</code></li>
+      </ul>
+    </details>
+  </div>
+
+  <div class="main dashboard-main">
+    <div class="card">
+      <h3 class="m-top-0"><span id="txt_events">🧾 Latest Events</span></h3>
+      <div class="toolbar">
+        <select id="filterSymbol"><option value="">All Symbols</option></select>
+        <select id="filterResult">
+          <option value="">All Results</option>
+          <option>ENTRY_PAPER</option><option>ENTRY_LIVE</option><option>PAPER_TP1</option><option>PAPER_TP2</option><option>LIVE_TP</option><option>PAPER_SL</option><option>LIVE_SL</option><option>BLOCKED</option><option>SKIP</option>
+        </select>
+      </div>
+      <div class="table-scroll mobile-table-cards">
+        <table id="eventsTable">
+          <thead><tr><th>Time</th><th>Symbol</th><th>Bias</th><th>RSI</th><th>Result</th><th>Note</th></tr></thead>
+          <tbody>
+          {% for t in trades|reverse %}
+            <tr data-symbol="{{ t.symbol or '-' }}" data-result="{{ t.result }}">
+              <td>{{ t.time }}</td><td>{{ t.symbol or '-' }}</td><td>{{ t.bias }}</td><td>{{ t.rsi }}</td>
+              <td><span class="tag {{ t.result }}">{{ t.result }}</span></td><td>{{ t.note or '' }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div id="eventsPager" class="toolbar events-pager">
+        <button type="button" id="evtPrev">◀ Prev</button>
+        <span class="small" id="evtPageInfo">Page 1/1</span>
+        <button type="button" id="evtNext">Next ▶</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 class="m-top-0"><span id="txt_runtime">⚙ Runtime Settings</span></h3>
+      <form action="/update" method="post">
+        <div class="row"><div><label>RSI MIN</label><input name="rsi_min" value="{{ cfg.RSI_MIN }}"></div><div><label>RSI MAX</label><input name="rsi_max" value="{{ cfg.RSI_MAX }}"></div></div>
+        <label>Golden Zone %</label><input name="gz" value="{{ cfg.GOLDEN_ZONE_DISTANCE }}">
+        <label>Risk / Trade</label><input name="risk" value="{{ cfg.RISK_PER_TRADE }}">
+        <label>Leverage (x)</label><input name="leverage" value="{{ cfg.LEVERAGE }}">
+        <label>Margin Mode</label><select name="margin_mode"><option value="cross" {% if cfg.MARGIN_MODE=="cross" %}selected{% endif %}>cross</option><option value="isolated" {% if cfg.MARGIN_MODE=="isolated" %}selected{% endif %}>isolated</option></select>
+        <label>Leverage by symbol (e.g. BTC/USDT:5,ETH/USDT:3)</label><input name="leverage_by_symbol" value="{% for k,v in cfg.LEVERAGE_BY_SYMBOL.items() %}{{k}}:{{v}}{% if not loop.last %},{% endif %}{% endfor %}">
+        <label>Max trades/day</label><input name="max_trades" value="{{ cfg.MAX_TRADES_PER_DAY }}">
+        <label>Cooldown minutes</label><input name="cooldown_minutes" value="{{ cfg.COOLDOWN_MINUTES }}">
+        <label>Order Size (USDT)</label><input name="order_size_usdt" value="{{ cfg.ORDER_SIZE_USDT or 10 }}" min="5" step="1">
+        <label>Daily loss cap %</label><input name="daily_loss_cap_pct" value="{{ cfg.DAILY_LOSS_CAP_PCT }}">
+        <label>Entry score threshold (0-100)</label><input name="entry_score_threshold" value="{{ cfg.ENTRY_SCORE_THRESHOLD or 65 }}">
+        <label>Score soft gate</label><select name="entry_score_soft_gate"><option value="true" {% if cfg.ENTRY_SCORE_SOFT_GATE %}selected{% endif %}>enabled</option><option value="false" {% if not cfg.ENTRY_SCORE_SOFT_GATE %}selected{% endif %}>disabled</option></select>
+        <label>Symbols (comma separated)</label><input name="symbols" value="{{ cfg.SYMBOLS|join(',') }}">
+        <button type="submit" id="txt_save_btn">Save</button>
+      </form>
+      <div class="actions">
+        <form action="/start" method="post"><button id="txt_start_btn">▶ START</button></form>
+        <form action="/stop" method="post"><button class="danger" id="txt_stop_btn">⏹ STOP</button></form>
+      </div>
+
+      <div class="card api-card">
+        <h4 class="api-card-title">🔐 Binance API (ลูกค้า)</h4>
+        <div class="small section-gap-xs">สถานะ: {% if has_user_api %}<span class="ok">บันทึกแล้ว</span>{% else %}<span class="warn">ยังไม่ได้บันทึก</span>{% endif %}</div>
+        <form action="/settings/api/save" method="post">
+          <label>API Key</label><input name="api_key" placeholder="กรอก API Key">
+          <label>API Secret</label><input name="api_secret" type="password" placeholder="กรอก API Secret">
+          <div class="actions"><button type="submit">Save API</button></div>
+        </form>
+        <div class="actions section-gap-xs">
+          <button type="button" id="btnTestApi">Test Connection</button>
+          <span class="small" id="apiTestResult">-</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card section-gap-md">
+    <h3 class="m-top-0"><span id="txt_blocked">🚧 Blocked Reasons</span></h3>
+    <pre id="blockedBox" class="small">-</pre>
+  </div>
+
+  <div class="card section-gap-md">
+    <h3 class="m-top-0"><span id="txt_positions_tbl">📦 Open Positions</span></h3>
+    <div class="table-scroll mobile-table-cards"><table id="posTable"><thead><tr><th>Symbol</th><th>Side</th><th>Contracts</th><th>Entry</th><th>Mark</th><th>uPnL</th></tr></thead><tbody></tbody></table></div>
+  </div>
+
+  <div class="card section-gap-md">
+    <h3 class="m-top-0">⚖️ Leverage by Symbol</h3>
+    <div class="table-scroll mobile-table-cards"><table id="levTable"><thead><tr><th>Symbol</th><th>Leverage</th><th>Margin Mode</th></tr></thead><tbody></tbody></table></div>
+  </div>
+</div>
+
+<button class="help-widget-btn" id="helpWidgetToggle">💬 AI Help</button>
+<div class="help-widget" id="helpWidget">
+  <div class="help-widget-head"><b>AI Help (Bot Usage)</b><button id="helpWidgetClose" class="help-close-btn">✕</button></div>
+  <div class="help-widget-body">
+    <div class="help-widget-log" id="helpWidgetLog">สวัสดีค่ะ 👋 ถามเรื่องการใช้งานบอทได้เลย เช่น leverage, cooldown, API key</div>
+    <div class="help-widget-input">
+      <input id="helpWidgetQ" placeholder="พิมพ์คำถาม..." />
+      <button id="helpWidgetSend">ถาม</button>
+    </div>
+  </div>
+</div>
+
+<div class="sticky-panic">
+  <form action="/panic" method="post" class="confirm-form" data-confirm="ยืนยันเปิด PANIC STOP ?"><button class="danger" id="txt_panic_btn">🛑 PANIC</button></form>
+  <form action="/unpanic" method="post" class="confirm-form" data-confirm="ปลด PANIC STOP ?"><button id="txt_unpanic_btn">✅ UNPANIC</button></form>
+</div>
+
+{% set active='dashboard' %}
+{% include '_mobile_nav.html' %}
+
+<script>
+window.DASHBOARD_CONFIG = {{ {'symbols': cfg.SYMBOLS}|tojson }};
+document.querySelectorAll('.confirm-form').forEach((f)=>{
+  f.addEventListener('submit',(e)=>{ if(!confirm(f.dataset.confirm||'ยืนยัน?')) e.preventDefault(); });
+});
+</script>
+<script src="/static/dashboard.js" defer></script>
+</body>
+</html>

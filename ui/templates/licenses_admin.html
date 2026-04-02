@@ -1,0 +1,30 @@
+<!doctype html>
+<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Licenses Admin</title><link rel="stylesheet" href="/static/style.css"></head><body>
+<div class="app-shell">
+<header class="topnav"><div class="brand">🔑 License Admin</div><div class="topnav-links"><a class="pill" href='/admin/control'>Worker Control</a><a class="pill" href='/admin/payments'>Payment Queue</a></div></header>
+<div class='card'>
+<form method='get' action='/admin/licenses' class="toolbar"> <input name='q' value='{{ q or "" }}' placeholder='email/plan/token'> <button type='submit'>Search</button></form>
+</div>
+<div class='card'>
+<form method='post' action='/admin/licenses/create' class="toolbar">
+<input name='email' required placeholder='Email'>
+<select name='plan'><option>starter</option><option>pro</option></select>
+<input name='days' value='30' style='width:90px'>
+<input name='max_devices' value='1' style='width:90px'>
+<button type='submit'>Create</button>
+</form>
+</div>
+<div class='card table-scroll'>
+<table><thead><tr><th>Email</th><th>Plan</th><th>Expires</th><th>Status</th><th>Devices</th><th>Token</th><th>Actions</th></tr></thead><tbody>
+{% for x in licenses %}
+<tr><td>{{x.email}}</td><td>{{x.plan}}</td><td>{{x.expires_at}}</td><td>{% if x.active is not defined or x.active %}active{% else %}suspended{% endif %}</td><td>{{ x.devices|length }}/{{x.max_devices}}</td><td><code>{{x.license_token}}</code></td><td>
+<form method='post' action='/admin/licenses/suspend' class="inline"><input type='hidden' name='token' value='{{x.license_token}}'><button type='submit'>Suspend</button></form>
+<form method='post' action='/admin/licenses/activate' class="inline"><input type='hidden' name='token' value='{{x.license_token}}'><button type='submit'>Activate</button></form>
+<form method='post' action='/admin/licenses/delete' class="inline" onsubmit='return confirm("Delete license?")'><input type='hidden' name='token' value='{{x.license_token}}'><button type='submit' class="danger">Delete</button></form>
+<form method='post' action='/admin/licenses/renew' class="inline"><input type='hidden' name='token' value='{{x.license_token}}'><input name='days' value='30' style='width:60px'><button type='submit'>Renew</button></form>
+<form method='post' action='/admin/licenses/send-token' class="inline"><input type='hidden' name='token' value='{{x.license_token}}'><input name='target_chat_id' placeholder='chat id' style='width:120px'><button type='submit'>Send TG</button></form>
+</td></tr>
+{% endfor %}
+</tbody></table>
+</div></div>
+</body></html>

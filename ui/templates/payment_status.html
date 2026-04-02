@@ -1,0 +1,13 @@
+<!doctype html>
+<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Payment Status</title><link rel="stylesheet" href="/static/style.css"></head><body>
+<div class="app-shell wrap-medium">
+<header class="topnav"><div class="brand">📦 Payment Status</div><div class="topnav-links"><a class="pill" href='/profile'>Profile</a></div></header>
+<div class='card'>
+<p>Order: <code>{{ order.order_id }}</code></p>
+<p>Status: {% if order.status=='paid' %}<b class='ok'>paid</b>{% elif order.status=='failed' %}<b class='bad'>failed</b>{% else %}<b class='warn'>pending</b>{% endif %}</p>
+<p>Plan: <b>{{ order.plan }}</b> | Channel: <b>{{ order.channel }}</b> | Amount: <b>{{ order.amount }} {{ order.currency }}</b></p>
+{% if license %}<hr><h3>✅ License Activated</h3><p>Email: {{ license.email }}</p><p>Token: <code>{{ license.license_token }}</code></p><p>Expires: {{ license.expires_at }}</p>{% else %}<p>License activation pending.</p>{% endif %}
+<p><a href='/checkout/order/{{ order.order_id }}'>Back to order</a></p>
+</div>
+</div>
+</body></html>
