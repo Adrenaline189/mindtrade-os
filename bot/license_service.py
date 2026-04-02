@@ -249,7 +249,16 @@ def list_payment_orders(status: str | None = None, limit: int = 200, email: str 
 
 def update_payment_order_status(order_id: str, status: str, *, reason: str = '', paid_at: str | None = None, meta: dict | None = None) -> dict | None:
     status_norm = (status or '').strip().lower()
+    import logging
+    logger = logging.getLogger(__name__)
+    import logging
+    logger = logging.getLogger(__name__)
+    import logging
+    logger = logging.getLogger(__name__)
     if status_norm not in {'pending', 'paid', 'failed'}:
+        # Security fix (Fix #6): Log invalid status attempt
+        logger.warning(f"BLOCKED_INVALID_STATUS_ATTEMPT: order_id={order_id!r} attempted_status={status!r} reason={reason!r}")
+        # Security fix (Fix #6): Log invalid status attempt
         raise ValueError('invalid_status')
 
     db = _load()
